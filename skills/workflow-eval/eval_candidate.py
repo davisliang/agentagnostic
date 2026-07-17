@@ -14,9 +14,15 @@ PRICES = {"claude-haiku-4-5": (1.0, 5.0), "claude-sonnet-5": (3.0, 15.0),
 DEFAULT_MODEL = "claude-haiku-4-5"
 client = anthropic.Anthropic()
 
-def cost_usd(m, ti, to):
+CACHE_WRITE_MULT, CACHE_READ_MULT = 1.25, 0.10
+
+def cost_usd(m, usage):
+    # cache writes bill 1.25x the input rate, reads only 0.10x (~90% off)
     pin, pout = PRICES[m]
-    return (ti * pin + to * pout) / 1_000_000
+    return (usage["input"] * pin
+            + usage["cache_write"] * pin * CACHE_WRITE_MULT
+            + usage["cache_read"] * pin * CACHE_READ_MULT
+            + usage["output"] * pout) / 1_000_000
 
 def extract_number(text):
     nums = re.findall(r"-?\d[\d,]*\.?\d*", text or "")
@@ -34,10 +40,14 @@ TOOL_DEFS = {
 THINKING_MODELS = {"claude-sonnet-5", "claude-opus-4-8"}
 
 def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None):
+    # cache breakpoint on the prompt -> identical resends to this model are cheap
+    content = [{"type": "text", "text": str(prompt),
+                "cache_control": {"type": "ephemeral"}}]
     request = {"model": model, "max_tokens": max_tokens,
-               "messages": [{"role": "user", "content": prompt}]}
+               "messages": [{"role": "user", "content": content}]}
     if system:
-        request["system"] = system
+        request["system"] = [{"type": "text", "text": system,
+                              "cache_control": {"type": "ephemeral"}}]
     if tools:
         request["tools"] = []
         for name in tools:
@@ -49,21 +59,34 @@ def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None):
     else:
         request["thinking"] = {"type": "disabled"}
     text = ""
-    tokens_in = 0
-    tokens_out = 0
+    usage = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
     for _ in range(5):
         msg = client.messages.create(**request)
-        tokens_in += msg.usage.input_tokens
-        tokens_out += msg.usage.output_tokens
+        usage["input"] += msg.usage.input_tokens
+        usage["output"] += msg.usage.output_tokens
+        usage["cache_write"] += getattr(msg.usage, "cache_creation_input_tokens", 0) or 0
+        usage["cache_read"] += getattr(msg.usage, "cache_read_input_tokens", 0) or 0
         for block in msg.content:
             if block.type == "text":
                 text += block.text
         if msg.stop_reason != "pause_turn":
             break
         request["messages"].append({"role": "assistant", "content": msg.content})
-    return text, tokens_in, tokens_out
+    return text, usage
 
 def make_extractor(spec):
+    # Prefer the profiler's task-specific extractor code (validated in the
+    # notebook); fall back to the deterministic type if it's absent or errors.
+    code = spec.get("code")
+    if code:
+        try:
+            ns = {"re": re, "json": json, "extract_number": extract_number}
+            exec(code, ns)
+            extract = ns["extract"]
+            extract("probe 0")          # smoke test: callable and doesn't crash
+            return extract
+        except Exception:
+            pass
     t = spec.get("type", "full")
     if t == "last_number":
         def ex(text):
@@ -122,10 +145,10 @@ class Runtime:
             raise BudgetError("call cap")
         self.calls += 1
         m = model if model in PRICES else self.default_model
-        text, ti, to = _call_api(m, str(prompt), int(max_tokens),
-                                 system=system, tools=tools, effort=effort)
-        self.tokens += ti + to
-        self.cost += cost_usd(m, ti, to)
+        text, usage = _call_api(m, str(prompt), int(max_tokens),
+                                system=system, tools=tools, effort=effort)
+        self.tokens += usage["input"] + usage["output"] + usage["cache_write"] + usage["cache_read"]
+        self.cost += cost_usd(m, usage)
         if self.tokens > self.max_tokens:
             raise BudgetError("token cap")
         return text

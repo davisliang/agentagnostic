@@ -40,6 +40,20 @@ def solve(question, llm):
   the extract + check rules (e.g. end with the number for numeric tasks, or put a
   short label on its own last line for exact-match).
 
+## Improving existing workflows
+
+If the prompt gives you existing workflows with their accuracy and cost, your job
+is to make them **cheaper without losing accuracy**. Good moves: use a cheaper
+model, make fewer model calls, route easy inputs to the cheap model and only
+escalate hard ones, or use `tools=["code_execution"]` so the model computes
+exactly instead of sampling many times. Keep a new candidate only if it stays at
+least as accurate as the best existing workflow while costing less per query.
+
+Resending the **same prompt to the same model** is much cheaper on input: prompt
+caching bills the repeat at ~10% of the input rate (the first send costs a bit more).
+Output tokens are never cached, so this cuts self-consistency's *input* cost but not
+its output cost, and a *different* model never shares the cache.
+
 ## Workflow
 
 1. Optionally research inference-time techniques with WebSearch / WebFetch.

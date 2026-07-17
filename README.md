@@ -1,9 +1,9 @@
 # Workflow Optimizer — V0
 
 Automatically find the best **LLM workflow** for a task under a budget. Instead of
-hand-writing prompting strategies, it has the model **design workflow programs**,
-runs them on your data, and picks the best point on the accuracy/cost **Pareto
-frontier**.
+hand-writing prompting strategies, it has the model **design workflow programs** and
+**iterate on them to cut cost without losing accuracy**, runs them on your data, and
+lets you pick the point you want on the accuracy/cost **Pareto frontier**.
 
 ## The idea in one paragraph
 
@@ -26,24 +26,31 @@ things, and all the generality rides on them:
 1. **Define the problem** — the *only* per-task input: a `SEED_PROMPT` and an
    optional `DATASET` (a list of `{"question", "answer"}`). Leave `DATASET = None`
    to have one generated.
-2. **Profile the task** — one structured LLM call infers a task *description* and
-   the *answer format* (`extract` + `check`), and generates a labeled dataset if you
-   didn't supply one. The data is split into **dev** (the designer may tune on this)
-   and a held-out **test** set.
-3. **Design workflows (agentic)** — a **Claude Agent SDK** agent (web search + Bash +
-   file tools), driven by two skills:
+2. **Profile the task** — one structured LLM call infers a task *description*, the
+   grading *check* (numeric / exact-match / LLM-judge), and — rather than picking from a
+   fixed menu — **writes an `extract(text)` function for the task**, which is validated
+   against gold probes and falls back to a deterministic extractor if it doesn't round-trip
+   (`build_extractor`). It also generates a labeled dataset if you didn't supply one. The
+   data is split into **dev** (the designer may tune on this) and a held-out **test** set.
+3. **Optimize (a loop)** — a **Claude Agent SDK** agent (web search + Bash + file
+   tools), driven by two skills, runs for `N_ROUNDS`:
    - `workflow-design` — the methodology and the program contract.
    - `workflow-eval` — a bundled `eval_candidate.py` that scores a candidate on dev.
 
-   It writes several candidate `solve` programs, self-tests each on the dev set, and
-   writes its picks to `programs.json`. It runs in a **clean subprocess**
-   (`run_proposer.py`) to stay isolated from the notebook kernel's async state; if it
-   doesn't write `programs.json`, the notebook salvages the candidate files from disk.
-4. **Search** — run every proposed program over the **held-out test split** through
-   the metered runtime; record accuracy and measured cost per query.
-5. **Select** — compute the accuracy/cost **Pareto frontier** and answer the two
+   Round 1 designs a diverse initial set. Each later round is shown the best workflows
+   so far and asked for **cheaper** ones that keep accuracy (a cheaper model, fewer
+   calls, difficulty routing, code execution instead of many samples). Every candidate
+   is scored on the **dev** split and added to an `archive`. The agent runs in a
+   **clean subprocess** (`run_proposer.py`) to stay isolated from the notebook kernel's
+   async state; if it doesn't write `programs.json`, the notebook salvages the
+   candidate files from disk.
+4. **Rank finalists** — take the dev-set Pareto frontier of the archive and
+   re-evaluate just those on the **held-out test split** for honest accuracy/cost
+   numbers.
+5. **Choose** — compute the accuracy/cost **Pareto frontier**, answer the two
    constrained questions — *best workflow under a $ budget* and *cheapest workflow
-   above an accuracy floor* — then plot it.
+   above an accuracy floor* — plot it, then print each finalist's code so you can pick
+   the methodology you want (`CHOICE`).
 
 ## The metered runtime
 
@@ -96,6 +103,11 @@ pyproject.toml, uv.lock            deps (anthropic, claude-agent-sdk, jupyter, .
 
 - The `llm_judge` checker makes its own cheap API calls; that cost is the
   *evaluator's* and is deliberately **not** counted as workflow cost.
+- Costs are **cache-aware**: every `llm()` call sets a prompt-cache breakpoint, so the
+  same prompt resent to the same model bills cache reads (~90% off the input rate),
+  while a different model never shares the cache (always a fresh, uncached call).
+  `cost_usd` splits `usage` into input / output / cache-write / cache-read and prices
+  each — writes at 1.25×, reads at 0.10× the input rate.
 - The dataset generator and the agent's dev self-tests use a small slice of data for
   speed; the final Pareto ranking is always on the held-out test split, so programs
   aren't scored on data the designer tuned against.
