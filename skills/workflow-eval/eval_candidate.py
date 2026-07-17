@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score a candidate solve(question, llm) program on the dev set.
+"""Score a candidate solve(question, call_model) program on the dev set.
 
 Task-agnostic: reconstructs the extractor + checker from task_spec.json
 (numeric / exact-match / llm_judge). Reads task_spec.json and dev_task.json from
@@ -150,7 +150,7 @@ class Runtime:
         self.max_calls, self.max_tokens = max_calls, max_tokens
         self.calls = self.tokens = 0
         self.cost = 0.0
-    def llm(self, prompt, max_tokens=256, model=None, system=None, tools=None, effort=None):
+    def call_model(self, prompt, max_tokens=256, model=None, system=None, tools=None, effort=None):
         if self.calls >= self.max_calls:
             raise BudgetError("call cap")
         self.calls += 1
@@ -181,7 +181,7 @@ def compile_solve(code):
           "MODELS": list(PRICES)}
     exec(code, ns)
     if not callable(ns.get("solve")):
-        raise ValueError("program does not define solve(question, llm)")
+        raise ValueError("program does not define solve(question, call_model)")
     return ns["solve"]
 
 class _TO(Exception):
@@ -217,7 +217,7 @@ def main():
     for item in dev:
         rt = Runtime(DEFAULT_MODEL)
         try:
-            ans = _with_timeout(lambda: solve(item["question"], rt.llm), 90)
+            ans = _with_timeout(lambda: solve(item["question"], rt.call_model), 90)
             pred = extract(ans if isinstance(ans, str) else str(ans))
             score = float(check(pred, item["answer"]))       # in [0, 1]
         except Exception as e:

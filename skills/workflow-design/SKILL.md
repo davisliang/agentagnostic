@@ -16,12 +16,12 @@ decompose-then-solve, debate, difficulty routing, cheap-model-with-escalation).
 Each candidate is a `.py` file defining exactly:
 
 ```python
-def solve(question, llm):
+def solve(question, call_model):
     ...
     return answer
 ```
 
-- `llm(prompt, max_tokens=256, model=None, system=None, tools=None, effort=None)`
+- `call_model(prompt, max_tokens=256, model=None, system=None, tools=None, effort=None)`
   is the ONLY way to call a model; it returns the response text.
     - `model=<name>` — route to a specific model (see `MODELS`, cheap → expensive).
     - `system="..."` — set a system prompt for that call.

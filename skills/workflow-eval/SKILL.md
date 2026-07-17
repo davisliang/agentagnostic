@@ -1,11 +1,11 @@
 ---
 name: workflow-eval
-description: Score a candidate solve(question, llm) workflow program on the dev set. Use to test any candidate before keeping it — it reports accuracy and cost per query, or the error if the program is broken.
+description: Score a candidate solve(question, call_model) workflow program on the dev set. Use to test any candidate before keeping it — it reports accuracy and cost per query, or the error if the program is broken.
 ---
 
 # Evaluate a workflow candidate
 
-Test a candidate workflow program (a `.py` file defining `solve(question, llm)`;
+Test a candidate workflow program (a `.py` file defining `solve(question, call_model)`;
 see the **workflow-design** skill for the contract) against the dev set.
 
 ## How to run

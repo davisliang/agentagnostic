@@ -7,14 +7,14 @@ lets you pick the point you want on the accuracy/cost **Pareto frontier**.
 
 ## The idea in one paragraph
 
-A "workflow" is just an arbitrary Python function `solve(question, llm) -> answer`.
+A "workflow" is just an arbitrary Python function `solve(question, call_model) -> answer`.
 Because it's *code*, it can express **any** inference-time paradigm — a single call,
 chain-of-thought, self-consistency, decomposition, debate, a cheap→expensive router —
 without the harness needing a special case for each. The harness fixes only three
 things, and all the generality rides on them:
 
-1. **Contract** — every workflow is `solve(question, llm) -> answer`.
-2. **Metered call site** — `llm(prompt, max_tokens, model)` is the *only* way a
+1. **Contract** — every workflow is `solve(question, call_model) -> answer`.
+2. **Metered call site** — `call_model(prompt, max_tokens, model)` is the *only* way a
    workflow can call a model. It's instrumented (counts tokens → USD) and
    budget-capped, so cost is measured at one chokepoint no matter what the code does.
 3. **Task-inferred scoring** — an `extract` (pull the answer out of text) + `check`
@@ -57,7 +57,7 @@ things, and all the generality rides on them:
 Generated programs are model-written code, so each one runs through a small
 `Runtime` (`evaluate_program`):
 
-- **Metered** — every `llm()` call adds to a per-query token/cost tally.
+- **Metered** — every `call_model()` call adds to a per-query token/cost tally.
 - **Capped** — hard limits on model calls and tokens per query; a program that
   blows the budget or crashes just scores 0 — it can't run away.
 
@@ -106,7 +106,7 @@ pyproject.toml, uv.lock            deps (anthropic, claude-agent-sdk, jupyter, .
   against a **task-specific rubric** the profiler writes and validates (generic-rubric
   fallback if it doesn't discriminate). The judge's API calls are the *evaluator's* cost,
   deliberately **not** counted as workflow cost.
-- Costs are **cache-aware**: every `llm()` call sets a prompt-cache breakpoint, so the
+- Costs are **cache-aware**: every `call_model()` call sets a prompt-cache breakpoint, so the
   same prompt resent to the same model bills cache reads (~90% off the input rate),
   while a different model never shares the cache (always a fresh, uncached call).
   `cost_usd` splits `usage` into input / output / cache-write / cache-read and prices
