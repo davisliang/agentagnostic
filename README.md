@@ -44,20 +44,18 @@ things, and all the generality rides on them:
 5. **Select** — compute the accuracy/cost **Pareto frontier** and answer the two
    constrained questions — *best workflow under a $ budget* and *cheapest workflow
    above an accuracy floor* — then plot it.
-6. **Bonus** — a surrogate predictor learns to predict accuracy/cost from the
-   collected rollouts, so you could skip most future rollouts.
 
-## The metered, sandboxed runtime
+## The metered runtime
 
-Generated programs are model-written code, so the harness runs them defensively
-(`Runtime` / `evaluate_program`):
+Generated programs are model-written code, so each one runs through a small
+`Runtime` (`evaluate_program`):
 
 - **Metered** — every `llm()` call adds to a per-query token/cost tally.
-- **Capped** — hard limits on model calls, tokens, and wall-clock per query; a
-  program that blows the budget or loops just scores 0 — it can't run away.
-- **Sandboxed** — executed in a restricted namespace (whitelisted builtins/imports,
-  no file/network/system access). This is a **guardrail, not a security boundary** —
-  for untrusted code use a container.
+- **Capped** — hard limits on model calls and tokens per query; a program that
+  blows the budget or crashes just scores 0 — it can't run away.
+
+The program's source is run with plain `exec` (it's the model designing workflows
+for *your* task in a research notebook). For untrusted code, run it in a container.
 
 ## The two skills
 
