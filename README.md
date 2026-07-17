@@ -1,0 +1,103 @@
+# Workflow Optimizer — V0
+
+Automatically find the best **LLM workflow** for a task under a budget. Instead of
+hand-writing prompting strategies, it has the model **design workflow programs**,
+runs them on your data, and picks the best point on the accuracy/cost **Pareto
+frontier**.
+
+## The idea in one paragraph
+
+A "workflow" is just an arbitrary Python function `solve(question, llm) -> answer`.
+Because it's *code*, it can express **any** inference-time paradigm — a single call,
+chain-of-thought, self-consistency, decomposition, debate, a cheap→expensive router —
+without the harness needing a special case for each. The harness fixes only three
+things, and all the generality rides on them:
+
+1. **Contract** — every workflow is `solve(question, llm) -> answer`.
+2. **Metered call site** — `llm(prompt, max_tokens, model)` is the *only* way a
+   workflow can call a model. It's instrumented (counts tokens → USD) and
+   budget-capped, so cost is measured at one chokepoint no matter what the code does.
+3. **Task-inferred scoring** — an `extract` (pull the answer out of text) + `check`
+   (numeric tolerance / exact-match / LLM-judge), so the evaluator never needs to
+   know the paradigm.
+
+## Pipeline (the notebook, top to bottom)
+
+1. **Define the problem** — the *only* per-task input: a `SEED_PROMPT` and an
+   optional `DATASET` (a list of `{"question", "answer"}`). Leave `DATASET = None`
+   to have one generated.
+2. **Profile the task** — one structured LLM call infers a task *description* and
+   the *answer format* (`extract` + `check`), and generates a labeled dataset if you
+   didn't supply one. The data is split into **dev** (the designer may tune on this)
+   and a held-out **test** set.
+3. **Design workflows (agentic)** — a **Claude Agent SDK** agent (web search + Bash +
+   file tools), driven by two skills:
+   - `workflow-design` — the methodology and the program contract.
+   - `workflow-eval` — a bundled `eval_candidate.py` that scores a candidate on dev.
+
+   It writes several candidate `solve` programs, self-tests each on the dev set, and
+   writes its picks to `programs.json`. It runs in a **clean subprocess**
+   (`run_proposer.py`) to stay isolated from the notebook kernel's async state; if it
+   doesn't write `programs.json`, the notebook salvages the candidate files from disk.
+4. **Search** — run every proposed program over the **held-out test split** through
+   the metered runtime; record accuracy and measured cost per query.
+5. **Select** — compute the accuracy/cost **Pareto frontier** and answer the two
+   constrained questions — *best workflow under a $ budget* and *cheapest workflow
+   above an accuracy floor* — then plot it.
+6. **Bonus** — a surrogate predictor learns to predict accuracy/cost from the
+   collected rollouts, so you could skip most future rollouts.
+
+## The metered, sandboxed runtime
+
+Generated programs are model-written code, so the harness runs them defensively
+(`Runtime` / `evaluate_program`):
+
+- **Metered** — every `llm()` call adds to a per-query token/cost tally.
+- **Capped** — hard limits on model calls, tokens, and wall-clock per query; a
+  program that blows the budget or loops just scores 0 — it can't run away.
+- **Sandboxed** — executed in a restricted namespace (whitelisted builtins/imports,
+  no file/network/system access). This is a **guardrail, not a security boundary** —
+  for untrusted code use a container.
+
+## The two skills
+
+Standard `SKILL.md` skills under `skills/`, copied into the agent's `.claude/skills/`
+at runtime so the SDK discovers them:
+
+- `skills/workflow-design/SKILL.md` — how to design + test candidates, and the `solve`
+  contract.
+- `skills/workflow-eval/{SKILL.md, eval_candidate.py}` — the dev evaluator; it mirrors
+  the notebook's runtime and reconstructs the extractor/checker from `task_spec.json`.
+
+## Running it
+
+```sh
+uv run jupyter notebook          # then open workflow_optimizer_v0.ipynb
+```
+
+- Set `ANTHROPIC_API_KEY` in your shell first — **every cell makes real API calls**
+  (the profiler, the design agent plus its self-tests, and the search).
+- To run a different task, edit `SEED_PROMPT` (and optionally `DATASET`) in the
+  "Define the problem" cell, then **Kernel → Restart & Run All**.
+- If you edit the notebook outside Jupyter, do **File → Reload Notebook from Disk**
+  before running, or a stale in-memory copy will overwrite the change on save.
+
+## Repo layout
+
+```
+workflow_optimizer_v0.ipynb        the pipeline
+run_proposer.py                    drives the design agent in a clean subprocess
+skills/
+  workflow-design/SKILL.md         design methodology + program contract
+  workflow-eval/SKILL.md           dev-evaluator skill
+  workflow-eval/eval_candidate.py  the bundled dev evaluator
+pyproject.toml, uv.lock            deps (anthropic, claude-agent-sdk, jupyter, ...)
+```
+
+## Notes
+
+- The `llm_judge` checker makes its own cheap API calls; that cost is the
+  *evaluator's* and is deliberately **not** counted as workflow cost.
+- The dataset generator and the agent's dev self-tests use a small slice of data for
+  speed; the final Pareto ranking is always on the held-out test split, so programs
+  aren't scored on data the designer tuned against.
