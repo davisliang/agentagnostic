@@ -101,8 +101,11 @@ pyproject.toml, uv.lock            deps (anthropic, claude-agent-sdk, jupyter, .
 
 ## Notes
 
-- The `llm_judge` checker makes its own cheap API calls; that cost is the
-  *evaluator's* and is deliberately **not** counted as workflow cost.
+- Grading returns a **score in [0, 1]** and a program's accuracy is the mean over the
+  dataset. `numeric`/`exact` are 1/0; `llm_judge` is a **graded** score from a cheap model
+  against a **task-specific rubric** the profiler writes and validates (generic-rubric
+  fallback if it doesn't discriminate). The judge's API calls are the *evaluator's* cost,
+  deliberately **not** counted as workflow cost.
 - Costs are **cache-aware**: every `llm()` call sets a prompt-cache breakpoint, so the
   same prompt resent to the same model bills cache reads (~90% off the input rate),
   while a different model never shares the cache (always a fresh, uncached call).

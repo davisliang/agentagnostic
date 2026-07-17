@@ -101,6 +101,9 @@ def make_extractor(spec):
     return lambda text: (text or "").strip()
 
 def make_checker(spec, judge_call):
+    # Returns a scorer ck(pred, gold) -> float in [0, 1]: 1.0/0.0 for numeric &
+    # exact, a graded quality score for llm_judge (against the task rubric). Kept
+    # identical to the notebook's check_answer so dev and test grade the same way.
     t = spec.get("type", "exact")
     if t == "numeric":
         tol = float(spec.get("tol", 1e-6))
@@ -112,7 +115,7 @@ def make_checker(spec, judge_call):
                 return extract_number(s)
         def ck(pred, gold):
             pn, gn = _num(pred), _num(gold)
-            return pn is not None and gn is not None and abs(pn - gn) <= tol
+            return 1.0 if (pn is not None and gn is not None and abs(pn - gn) <= tol) else 0.0
         return ck
     if t == "exact":
         def norm(x):
@@ -122,13 +125,20 @@ def make_checker(spec, judge_call):
             if spec.get("casefold", True):
                 s = s.casefold()
             return s
-        return lambda pred, gold: norm(pred) == norm(gold)
+        def ck(pred, gold):
+            return 1.0 if norm(pred) == norm(gold) else 0.0
+        return ck
     jm = spec.get("model", "claude-haiku-4-5")
+    rubric = str(spec.get("rubric", "")).strip() or "Does the candidate correctly and completely satisfy the task?"
+    task = spec.get("task", "")
     def ck(pred, gold):
-        q = (f"Task: {spec.get('task', '')}\nReference answer: {gold}\n"
-             f"Candidate answer: {pred}\nIs the candidate correct / equivalent to "
-             "the reference? Answer 'yes' or 'no'.")
-        return judge_call(jm, q).strip().lower().startswith("y")
+        q = (f"Task: {task}\n\nGrading rubric:\n{rubric}\n\n"
+             f"Reference (an example of a good answer):\n{gold}\n\n"
+             f"Candidate answer:\n{pred}\n\n"
+             "Score how well the candidate satisfies the rubric for the task, from 0 to 100 "
+             "(100 = fully correct/complete, 0 = wrong or empty). Reply with ONLY the number.")
+        n = extract_number(judge_call(jm, q))
+        return 0.0 if n is None else max(0.0, min(1.0, n / 100.0))
     return ck
 
 class BudgetError(RuntimeError):
@@ -203,19 +213,19 @@ def main():
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"compile: {e}"}))
         return
-    n_ok, costs, errs = 0, [], []
+    total, costs, errs = 0.0, [], []
     for item in dev:
         rt = Runtime(DEFAULT_MODEL)
         try:
             ans = _with_timeout(lambda: solve(item["question"], rt.llm), 90)
             pred = extract(ans if isinstance(ans, str) else str(ans))
-            ok = bool(check(pred, item["answer"]))
+            score = float(check(pred, item["answer"]))       # in [0, 1]
         except Exception as e:
-            ok = False
+            score = 0.0
             errs.append(str(e)[:80])
-        n_ok += int(ok)
+        total += score
         costs.append(rt.cost)
-    print(json.dumps({"ok": True, "accuracy": n_ok / len(dev),
+    print(json.dumps({"ok": True, "accuracy": total / len(dev),
                       "cost_per_query": sum(costs) / len(costs), "n": len(dev),
                       "errors": errs[:3]}))
 
