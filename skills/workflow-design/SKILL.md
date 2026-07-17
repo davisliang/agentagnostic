@@ -21,8 +21,16 @@ def solve(question, llm):
     return answer
 ```
 
-- `llm(prompt, max_tokens=256, model=None)` is the ONLY way to call a model; it
-  returns the response text. Route between models by passing `model=<name>`.
+- `llm(prompt, max_tokens=256, model=None, system=None, tools=None, effort=None)`
+  is the ONLY way to call a model; it returns the response text.
+    - `model=<name>` — route to a specific model (see `MODELS`, cheap → expensive).
+    - `system="..."` — set a system prompt for that call.
+    - `tools=["code_execution"]` and/or `tools=["web_search"]` — let the model run
+      Python or search the web (server-side; results come back in the reply). Use a
+      large model (Sonnet 5 or Opus 4.8) with tools.
+    - `effort="low"|"medium"|"high"|"xhigh"|"max"` — turn on the model's own
+      step-by-step thinking at that depth (Sonnet 5 / Opus 4.8 only; ignored on the
+      cheap model). Costs more tokens; the per-query budget still applies.
 - Inside `solve` you may use, with no imports: `re`, `json`, `statistics`,
   `Counter`, `extract_number(text) -> float | None`, and the list `MODELS`.
 - No file / network / system access inside `solve`.

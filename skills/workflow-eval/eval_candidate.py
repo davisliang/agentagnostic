@@ -27,12 +27,41 @@ def extract_number(text):
     except ValueError:
         return None
 
-def _call_api(model, prompt, max_tokens):
-    msg = client.messages.create(model=model, max_tokens=max_tokens,
-        thinking={"type": "disabled"},
-        messages=[{"role": "user", "content": prompt}])
-    text = "".join(b.text for b in msg.content if b.type == "text")
-    return text, msg.usage.input_tokens, msg.usage.output_tokens
+TOOL_DEFS = {
+    "code_execution": {"type": "code_execution_20260521", "name": "code_execution"},
+    "web_search":     {"type": "web_search_20260209", "name": "web_search"},
+}
+THINKING_MODELS = {"claude-sonnet-5", "claude-opus-4-8"}
+
+def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None):
+    request = {"model": model, "max_tokens": max_tokens,
+               "messages": [{"role": "user", "content": prompt}]}
+    if system:
+        request["system"] = system
+    if tools:
+        request["tools"] = []
+        for name in tools:
+            request["tools"].append(TOOL_DEFS[name])
+    if effort and model in THINKING_MODELS:
+        request["thinking"] = {"type": "adaptive"}
+        request["output_config"] = {"effort": effort}
+        request["max_tokens"] = max(max_tokens, 8192)
+    else:
+        request["thinking"] = {"type": "disabled"}
+    text = ""
+    tokens_in = 0
+    tokens_out = 0
+    for _ in range(5):
+        msg = client.messages.create(**request)
+        tokens_in += msg.usage.input_tokens
+        tokens_out += msg.usage.output_tokens
+        for block in msg.content:
+            if block.type == "text":
+                text += block.text
+        if msg.stop_reason != "pause_turn":
+            break
+        request["messages"].append({"role": "assistant", "content": msg.content})
+    return text, tokens_in, tokens_out
 
 def make_extractor(spec):
     t = spec.get("type", "full")
@@ -88,12 +117,13 @@ class Runtime:
         self.max_calls, self.max_tokens = max_calls, max_tokens
         self.calls = self.tokens = 0
         self.cost = 0.0
-    def llm(self, prompt, max_tokens=256, model=None):
+    def llm(self, prompt, max_tokens=256, model=None, system=None, tools=None, effort=None):
         if self.calls >= self.max_calls:
             raise BudgetError("call cap")
         self.calls += 1
         m = model if model in PRICES else self.default_model
-        text, ti, to = _call_api(m, str(prompt), int(max_tokens))
+        text, ti, to = _call_api(m, str(prompt), int(max_tokens),
+                                 system=system, tools=tools, effort=effort)
         self.tokens += ti + to
         self.cost += cost_usd(m, ti, to)
         if self.tokens > self.max_tokens:
