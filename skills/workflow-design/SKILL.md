@@ -26,7 +26,8 @@ def solve(question, call_model):
   around it: return `"42"`, not `"The answer is 42."`. The prompt states the
   `check` rule that scores it.
     - You may instead return a dict `{"answer": <the answer>, ...}` if you want to
-      keep extra context alongside it. Only `answer` is graded.
+      keep extra context alongside it. Only `answer` is graded — a returned object
+      with no `answer` key is a contract violation and scores 0 with an error.
 - `call_model(prompt, model=None, system=None, tools=None, effort=None, schema=None)`
   is the ONLY way to call a model. It returns a `Reply`, which **is** a string (so
   `return call_model(p)` works), with the full response attached: `.blocks` (every
@@ -44,8 +45,14 @@ def solve(question, call_model):
       answer out of a model, and it composes with `tools=` (the schema shapes only
       the text the model writes at the end). If the model refuses, `reply.data`
       is `None` — fall back to the reply text.
+      Use the provided **`ANSWER_SCHEMA`** for the call that produces the final
+      answer; it is `{"answer": <string>}`, the shape `solve` is graded on. Give
+      intermediate calls whatever schema fits them — a difficulty router wants
+      `{"difficulty": ...}`, a decomposer `{"subquestions": [...]}`. Only the value
+      you RETURN has to carry an `answer`.
 - Inside `solve` you may use, with no imports: `re`, `json`, `statistics`,
-  `Counter`, `extract_last_number(text) -> float | None`, and the list `MODELS`.
+  `Counter`, `extract_last_number(text) -> float | None`, the list `MODELS`, and
+  `ANSWER_SCHEMA`.
 - No file / network / system access inside `solve`.
 - There is no output-length knob: every call gets one generous ceiling. You pay for
   the tokens a reply actually uses, so length is controlled by the prompt, not a cap.
@@ -55,13 +62,13 @@ def solve(question, call_model):
 A reliable shape for the last step of a workflow:
 
 ```python
-ANSWER = {"type": "object", "properties": {"answer": {"type": "string"}},
-          "required": ["answer"], "additionalProperties": False}
-
 def solve(question, call_model):
-    reply = call_model(question, schema=ANSWER)
+    reply = call_model(question, schema=ANSWER_SCHEMA)
     return reply.data["answer"] if reply.data else str(reply).strip()
 ```
+
+Returning the reply itself also works — `return call_model(question, schema=ANSWER_SCHEMA)`
+is unwrapped to its `answer` for you.
 
 ## Improving existing workflows
 

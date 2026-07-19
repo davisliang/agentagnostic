@@ -207,6 +207,17 @@ class Runtime:
             raise RuntimeError("workflow exceeded its token budget")
         return Reply(text, blocks=blocks, usage=usage, model=model, data=data)
 
+# The shape of a final answer. Handed to every program so the graded contract and
+# the schema it asks the model for cannot drift apart. This is the shape for the
+# value solve() RETURNS — intermediate calls (a difficulty router, a decomposer)
+# should use whatever schema fits them.
+ANSWER_SCHEMA = {
+    "type": "object",
+    "properties": {"answer": {"type": "string"}},
+    "required": ["answer"],
+    "additionalProperties": False,
+}
+
 # Candidate code is model-written, so it runs with a restricted import list and a
 # small builtins allowlist rather than full Python.
 _ALLOWED = {"re", "json", "math", "statistics", "collections", "itertools",
@@ -224,7 +235,7 @@ _B["__import__"] = _imp
 def compile_solve(code):
     namespace = {"__builtins__": _B, "re": re, "json": json, "statistics": statistics,
                  "Counter": Counter, "extract_last_number": extract_last_number,
-                 "MODELS": MODELS}
+                 "MODELS": MODELS, "ANSWER_SCHEMA": ANSWER_SCHEMA}
     exec(code, namespace)
     if not callable(namespace.get("solve")):
         raise ValueError("program does not define solve(question, call_model)")
