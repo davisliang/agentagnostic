@@ -75,7 +75,7 @@ def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None):
     return text, usage
 
 def make_extractor(spec):
-    # Prefer the profiler's task-specific extractor code (validated in the
+    # Prefer the analyzer's task-specific extractor code (validated in the
     # notebook); fall back to the deterministic type if it's absent or errors.
     code = spec.get("code")
     if code:

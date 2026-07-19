@@ -26,7 +26,7 @@ things, and all the generality rides on them:
 1. **Define the problem** — the *only* per-task input: a `SEED_PROMPT` and an
    optional `DATASET` (a list of `{"question", "answer"}`). Leave `DATASET = None`
    to have one generated.
-2. **Profile the task** — one structured LLM call infers a task *description*, the
+2. **Analyze the task** — one structured LLM call infers a task *description*, the
    grading *check* (numeric / exact-match / LLM-judge), and — rather than picking from a
    fixed menu — **writes an `extract(text)` function for the task**, which is validated
    against gold probes and falls back to a deterministic extractor if it doesn't round-trip
@@ -81,7 +81,7 @@ uv run jupyter notebook          # then open workflow_optimizer_v0.ipynb
 ```
 
 - Set `ANTHROPIC_API_KEY` in your shell first — **every cell makes real API calls**
-  (the profiler, the design agent plus its self-tests, and the search).
+  (the analyzer, the design agent plus its self-tests, and the search).
 - To run a different task, edit `SEED_PROMPT` (and optionally `DATASET`) in the
   "Define the problem" cell, then **Kernel → Restart & Run All**.
 - If you edit the notebook outside Jupyter, do **File → Reload Notebook from Disk**
@@ -103,7 +103,7 @@ pyproject.toml, uv.lock            deps (anthropic, claude-agent-sdk, jupyter, .
 
 - Grading returns a **score in [0, 1]** and a program's accuracy is the mean over the
   dataset. `numeric`/`exact` are 1/0; `llm_judge` is a **graded** score from a cheap model
-  against a **task-specific rubric** the profiler writes and validates (generic-rubric
+  against a **task-specific rubric** the analyzer writes and validates (generic-rubric
   fallback if it doesn't discriminate). The judge's API calls are the *evaluator's* cost,
   deliberately **not** counted as workflow cost.
 - Costs are **cache-aware**: every `call_model()` call sets a prompt-cache breakpoint, so the
