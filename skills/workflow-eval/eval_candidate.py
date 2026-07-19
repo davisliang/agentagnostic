@@ -7,22 +7,35 @@ the current working directory. Usage: python eval_candidate.py <candidate.py>
 """
 import re, sys, json, statistics, builtins, signal
 from collections import Counter
+from dataclasses import dataclass
 import anthropic
 
-PRICES = {"claude-haiku-4-5": (1.0, 5.0), "claude-sonnet-5": (3.0, 15.0),
-          "claude-opus-4-8": (5.0, 25.0)}
-DEFAULT_MODEL = "claude-haiku-4-5"
+@dataclass
+class Model:
+    id: str
+    price_in: float       # USD per 1,000,000 input tokens
+    price_out: float      # USD per 1,000,000 output tokens
+    thinks: bool          # supports the effort / adaptive-thinking params
+
+MODEL_SPECS = [
+    Model("claude-haiku-4-5", 1.0,  5.0, thinks=False),
+    Model("claude-sonnet-5",  3.0, 15.0, thinks=True),
+    Model("claude-opus-4-8",  5.0, 25.0, thinks=True),
+]
+BY_ID = {m.id: m for m in MODEL_SPECS}      # id -> Model
+MODELS = [m.id for m in MODEL_SPECS]        # ids, cheapest -> most expensive
+DEFAULT_MODEL = MODELS[0]
 client = anthropic.Anthropic()
 
 CACHE_WRITE_MULT, CACHE_READ_MULT = 1.25, 0.10
 
 def cost_usd(m, usage):
     # cache writes bill 1.25x the input rate, reads only 0.10x (~90% off)
-    pin, pout = PRICES[m]
-    return (usage["input"] * pin
-            + usage["cache_write"] * pin * CACHE_WRITE_MULT
-            + usage["cache_read"] * pin * CACHE_READ_MULT
-            + usage["output"] * pout) / 1_000_000
+    spec = BY_ID[m]
+    return (usage["input"] * spec.price_in
+            + usage["cache_write"] * spec.price_in * CACHE_WRITE_MULT
+            + usage["cache_read"] * spec.price_in * CACHE_READ_MULT
+            + usage["output"] * spec.price_out) / 1_000_000
 
 def extract_number(text):
     nums = re.findall(r"-?\d[\d,]*\.?\d*", text or "")
@@ -37,7 +50,16 @@ TOOL_DEFS = {
     "code_execution": {"type": "code_execution_20260521", "name": "code_execution"},
     "web_search":     {"type": "web_search_20260209", "name": "web_search"},
 }
-THINKING_MODELS = {"claude-sonnet-5", "claude-opus-4-8"}
+
+MAX_TOOL_TURNS = 5   # cap on API calls while a server-side tool keeps pausing the turn
+def _get_usage(msg):
+    # Anthropic returns these token counts in the response's usage block.
+    return {
+        "input": msg.usage.input_tokens,
+        "output": msg.usage.output_tokens,
+        "cache_write": getattr(msg.usage, "cache_creation_input_tokens", 0) or 0,
+        "cache_read": getattr(msg.usage, "cache_read_input_tokens", 0) or 0,
+    }
 
 def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None):
     # cache breakpoint on the prompt -> identical resends to this model are cheap
@@ -52,7 +74,7 @@ def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None):
         request["tools"] = []
         for name in tools:
             request["tools"].append(TOOL_DEFS[name])
-    if effort and model in THINKING_MODELS:
+    if effort and model in BY_ID and BY_ID[model].thinks:
         request["thinking"] = {"type": "adaptive"}
         request["output_config"] = {"effort": effort}
         request["max_tokens"] = max(max_tokens, 8192)
@@ -60,12 +82,15 @@ def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None):
         request["thinking"] = {"type": "disabled"}
     text = ""
     usage = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
-    for _ in range(5):
+    turns = 0
+    while turns < MAX_TOOL_TURNS:
+        turns += 1
         msg = client.messages.create(**request)
-        usage["input"] += msg.usage.input_tokens
-        usage["output"] += msg.usage.output_tokens
-        usage["cache_write"] += getattr(msg.usage, "cache_creation_input_tokens", 0) or 0
-        usage["cache_read"] += getattr(msg.usage, "cache_read_input_tokens", 0) or 0
+        got = _get_usage(msg)
+        usage["input"] += got["input"]
+        usage["output"] += got["output"]
+        usage["cache_write"] += got["cache_write"]
+        usage["cache_read"] += got["cache_read"]
         for block in msg.content:
             if block.type == "text":
                 text += block.text
@@ -154,7 +179,7 @@ class Runtime:
         if self.calls >= self.max_calls:
             raise BudgetError("call cap")
         self.calls += 1
-        m = model if model in PRICES else self.default_model
+        m = model if model in BY_ID else self.default_model
         text, usage = _call_api(m, str(prompt), int(max_tokens),
                                 system=system, tools=tools, effort=effort)
         self.tokens += usage["input"] + usage["output"] + usage["cache_write"] + usage["cache_read"]
@@ -178,7 +203,7 @@ _B["__import__"] = _imp
 def compile_solve(code):
     ns = {"__builtins__": _B, "re": re, "json": json, "statistics": statistics,
           "Counter": Counter, "extract_number": extract_number,
-          "MODELS": list(PRICES)}
+          "MODELS": MODELS}
     exec(code, ns)
     if not callable(ns.get("solve")):
         raise ValueError("program does not define solve(question, call_model)")
