@@ -12,6 +12,7 @@ import re, sys, json, statistics, builtins, signal
 from collections import Counter
 from dataclasses import dataclass
 import anthropic
+from pydantic import BaseModel, ConfigDict
 
 @dataclass
 class Model:
@@ -85,11 +86,16 @@ def _call_api(model, prompt, system=None, tools=None, effort=None, schema=None):
         output_config["effort"] = effort
     else:
         request["thinking"] = {"type": "disabled"}
-    if schema:
-        # Constrains ONLY the text written at the end; tool blocks are untouched.
-        output_config["format"] = {"type": "json_schema", "schema": schema}
     if output_config:
         request["output_config"] = output_config
+    if schema is not None:
+        # Constrains ONLY the text the model writes at the end — tool calls and
+        # tool results in the same reply are untouched. Takes a Pydantic model
+        # class (what this notebook uses) or a raw JSON Schema dict (what a
+        # workflow program passes, since the sandbox has no pydantic).
+        request["output_format"] = (
+            schema if isinstance(schema, type) and issubclass(schema, BaseModel)
+            else {"type": "json_schema", "schema": schema})
     turn_texts = []
     blocks = []
     usage = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
@@ -120,12 +126,10 @@ JUDGE_MODEL = "claude-haiku-4-5"
 JUDGE_RUBRIC = ""
 JUDGE_TASK = ""
 
-JUDGE_SCHEMA = {   # the judge replies with a number, not a sentence containing one
-    "type": "object",
-    "properties": {"score": {"type": "integer"}},
-    "required": ["score"],
-    "additionalProperties": False,
-}
+class JudgeScore(BaseModel):
+    """The judge replies with a number, not a sentence containing one."""
+    model_config = ConfigDict(extra="forbid")
+    score: int
 
 def extract_last_number(text):
     # The last number in the text, or None. NOT used by grading — it is handed to
@@ -158,10 +162,10 @@ def judge_score(prediction, gold, rubric="", task=""):
               f"Candidate answer:\n{prediction}\n\n"
               "Score how well the candidate satisfies the rubric for the task, from 0 to 100 "
               "(100 = fully correct/complete, 0 = wrong or empty).")
-    reply, _, _ = _call_api(JUDGE_MODEL, prompt, schema=JUDGE_SCHEMA)
+    reply, _, _ = _call_api(JUDGE_MODEL, prompt, schema=JudgeScore)
     try:
-        score = float(json.loads(reply)["score"])
-    except (ValueError, KeyError, TypeError):
+        score = JudgeScore.model_validate_json(reply).score
+    except ValueError:                         # refusal, or a reply past the ceiling
         return 0.0
     return max(0.0, min(1.0, score / 100.0))   # a schema can't bound a range, so clamp
 
@@ -227,12 +231,13 @@ class Runtime:
 # the schema it asks the model for cannot drift apart. This is the shape for the
 # value solve() RETURNS — intermediate calls (a difficulty router, a decomposer)
 # should use whatever schema fits them.
-ANSWER_SCHEMA = {
-    "type": "object",
-    "properties": {"answer": {"type": "string"}},
-    "required": ["answer"],
-    "additionalProperties": False,
-}
+class Answer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    answer: str
+
+# Handed to programs as a plain dict: model-written code runs in a sandbox with no
+# pydantic, and call_model's schema= accepts either form.
+ANSWER_SCHEMA = Answer.model_json_schema()
 
 # Candidate code is model-written, so it runs with a restricted import list and a
 # small builtins allowlist rather than full Python.
