@@ -18,7 +18,7 @@ bundled script on the candidate file:
 python .claude/skills/workflow-eval/eval_candidate.py <candidate_file.py>
 ```
 
-The script reconstructs the task's extractor + checker from `task_spec.json`
+The script reconstructs the task's checker from `task_spec.json`
 (numeric / exact-match / LLM-judge), runs the candidate on every dev example
 through the same metered, sandboxed runtime the final search uses, and reports
 the result.

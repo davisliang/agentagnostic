@@ -13,13 +13,15 @@ chain-of-thought, self-consistency, decomposition, debate, a cheap→expensive r
 without the harness needing a special case for each. The harness fixes only three
 things, and all the generality rides on them:
 
-1. **Contract** — every workflow is `solve(question, call_model) -> answer`.
+1. **Contract** — every workflow is `solve(question, call_model) -> answer`. It
+   *returns* its answer, so nothing has to be parsed back out of prose.
 2. **Metered call site** — `call_model(prompt, max_tokens, model)` is the *only* way a
    workflow can call a model. It's instrumented (counts tokens → USD) and
    budget-capped, so cost is measured at one chokepoint no matter what the code does.
-3. **Task-inferred scoring** — an `extract` (pull the answer out of text) + `check`
-   (numeric tolerance / exact-match / LLM-judge), so the evaluator never needs to
-   know the paradigm.
+   It returns a `Reply` — a string carrying the full response, so a run can be
+   inspected afterwards without anything being discarded.
+3. **Task-inferred scoring** — a task-inferred `check` (numeric tolerance /
+   exact-match / LLM-judge), so the evaluator never needs to know the paradigm.
 
 ## Pipeline (the notebook, top to bottom)
 
@@ -28,9 +30,9 @@ things, and all the generality rides on them:
    to have one generated.
 2. **Analyze the task** — one structured LLM call infers a task *description*, the
    grading *check* (numeric / exact-match / LLM-judge), and — rather than picking from a
-   fixed menu — **writes an `extract(text)` function for the task**, which is validated
-   against gold probes and falls back to a deterministic extractor if it doesn't round-trip
-   (`build_extractor`). It also generates a labeled dataset if you didn't supply one. The
+   fixed menu — a **judge rubric** for free-form tasks, validated against example
+   answers and falling back to a generic judge if it doesn't discriminate
+   (`build_judge`). It also generates a labeled dataset if you didn't supply one. The
    data is split into **dev** (the designer may tune on this) and a held-out **test** set.
 3. **Optimize (a loop)** — a **Claude Agent SDK** agent (web search + Bash + file
    tools), driven by two skills, runs for `N_ROUNDS`:
@@ -72,7 +74,7 @@ at runtime so the SDK discovers them:
 - `skills/workflow-design/SKILL.md` — how to design + test candidates, and the `solve`
   contract.
 - `skills/workflow-eval/{SKILL.md, eval_candidate.py}` — the dev evaluator; it mirrors
-  the notebook's runtime and reconstructs the extractor/checker from `task_spec.json`.
+  the notebook's runtime and reconstructs the checker from `task_spec.json`.
 
 ## Running it
 
