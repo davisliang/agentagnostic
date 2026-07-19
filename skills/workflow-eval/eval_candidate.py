@@ -51,6 +51,11 @@ TOOL_DEFS = {
 
 MAX_TOOL_TURNS = 5   # cap on API calls while a server-side tool keeps pausing the turn
 
+# One output ceiling for every call. NOT a cost knob — you are billed for the
+# tokens a reply actually uses, so a tight cap saves nothing and only risks
+# truncating an answer. Spend is capped by the per-query budget in Runtime.
+MAX_OUTPUT_TOKENS = 16000
+
 def _get_usage(msg):
     # Anthropic returns these token counts in the response's usage block.
     return {
@@ -60,11 +65,11 @@ def _get_usage(msg):
         "cache_read": getattr(msg.usage, "cache_read_input_tokens", 0) or 0,
     }
 
-def _call_api(model, prompt, max_tokens, system=None, tools=None, effort=None, schema=None):
+def _call_api(model, prompt, system=None, tools=None, effort=None, schema=None):
     # cache breakpoint on the prompt -> identical resends to this model are cheap
     content = [{"type": "text", "text": str(prompt),
                 "cache_control": {"type": "ephemeral"}}]
-    request = {"model": model, "max_tokens": max_tokens,
+    request = {"model": model, "max_tokens": MAX_OUTPUT_TOKENS,
                "messages": [{"role": "user", "content": content}]}
     if system:
         request["system"] = [{"type": "text", "text": system,
@@ -124,7 +129,7 @@ def extract_last_number(text):
     except ValueError:
         return None
 
-def judge_score(prediction, gold, rubric="", task="", max_tokens=16):
+def judge_score(prediction, gold, rubric="", task=""):
     # Grade a free-form candidate from 0 to 1 against the task rubric (the gold is
     # an example of a good answer, not the only acceptable one). 0.0 if unparseable.
     criteria = rubric.strip() or "Does the candidate correctly and completely satisfy the task?"
@@ -133,7 +138,7 @@ def judge_score(prediction, gold, rubric="", task="", max_tokens=16):
               f"Candidate answer:\n{prediction}\n\n"
               "Score how well the candidate satisfies the rubric for the task, from 0 to 100 "
               "(100 = fully correct/complete, 0 = wrong or empty). Reply with ONLY the number.")
-    reply, _, _ = _call_api(JUDGE_MODEL, prompt, max_tokens)
+    reply, _, _ = _call_api(JUDGE_MODEL, prompt)
     number = extract_last_number(reply)
     if number is None:
         return 0.0
@@ -169,15 +174,15 @@ class Reply(str):
 class Runtime:
     """A workflow program calls `runtime.call_model(...)` for every model call. This is
     the one place cost is measured, and it stops the program if it goes over budget."""
-    def __init__(self, default_model, max_calls=24, max_tokens=120_000):
+    def __init__(self, default_model, max_calls=24, token_budget=120_000):
         self.default_model = default_model
         self.max_calls = max_calls
-        self.max_tokens = max_tokens
+        self.token_budget = token_budget
         self.calls = 0
         self.tokens = 0
         self.cost = 0.0
 
-    def call_model(self, prompt, max_tokens=256, model=None, system=None, tools=None,
+    def call_model(self, prompt, model=None, system=None, tools=None,
                    effort=None, schema=None):
         if self.calls >= self.max_calls:
             raise RuntimeError("workflow exceeded its model-call budget")
@@ -185,8 +190,7 @@ class Runtime:
         if model not in BY_ID:
             model = self.default_model
         text, blocks, usage = _call_api(
-            model, str(prompt), int(max_tokens),
-            system=system, tools=tools, effort=effort, schema=schema)
+            model, str(prompt), system=system, tools=tools, effort=effort, schema=schema)
         data = None
         if schema:
             try:
@@ -195,7 +199,7 @@ class Runtime:
                 data = None
         self.tokens += usage["input"] + usage["output"] + usage["cache_write"] + usage["cache_read"]
         self.cost += cost_usd(model, usage)
-        if self.tokens > self.max_tokens:
+        if self.tokens > self.token_budget:
             raise RuntimeError("workflow exceeded its token budget")
         return Reply(text, blocks=blocks, usage=usage, model=model, data=data)
 

@@ -27,7 +27,7 @@ def solve(question, call_model):
   `check` rule that scores it.
     - You may instead return a dict `{"answer": <the answer>, ...}` if you want to
       keep extra context alongside it. Only `answer` is graded.
-- `call_model(prompt, max_tokens=256, model=None, system=None, tools=None, effort=None, schema=None)`
+- `call_model(prompt, model=None, system=None, tools=None, effort=None, schema=None)`
   is the ONLY way to call a model. It returns a `Reply`, which **is** a string (so
   `return call_model(p)` works), with the full response attached: `.blocks` (every
   content block, including tool calls and their results), `.data` (parsed JSON when
@@ -39,16 +39,16 @@ def solve(question, call_model):
     - `effort="low"|"medium"|"high"|"xhigh"|"max"` — turn on the model's own
       step-by-step thinking at that depth (Sonnet 5 / Opus 4.8 only; ignored on the
       cheap model). Costs more tokens; the per-query budget still applies.
-      **Thinking tokens count against `max_tokens`**, so raise it on these calls
-      (8192+) or the reply gets truncated before the answer.
     - `schema=<JSON Schema>` — constrain the reply to JSON matching it, and read the
       parsed object off `reply.data`. This is the most reliable way to get a clean
       answer out of a model, and it composes with `tools=` (the schema shapes only
-      the text the model writes at the end). Give such calls a larger `max_tokens`:
-      a truncated reply is invalid JSON and `reply.data` will be `None`.
+      the text the model writes at the end). If the model refuses, `reply.data`
+      is `None` — fall back to the reply text.
 - Inside `solve` you may use, with no imports: `re`, `json`, `statistics`,
   `Counter`, `extract_last_number(text) -> float | None`, and the list `MODELS`.
 - No file / network / system access inside `solve`.
+- There is no output-length knob: every call gets one generous ceiling. You pay for
+  the tokens a reply actually uses, so length is controlled by the prompt, not a cap.
 - The runtime meters cost and enforces a per-query call/token budget, so keep the
   number of model calls modest.
 
@@ -59,7 +59,7 @@ ANSWER = {"type": "object", "properties": {"answer": {"type": "string"}},
           "required": ["answer"], "additionalProperties": False}
 
 def solve(question, call_model):
-    reply = call_model(question, max_tokens=1024, schema=ANSWER)
+    reply = call_model(question, schema=ANSWER)
     return reply.data["answer"] if reply.data else str(reply).strip()
 ```
 

@@ -15,7 +15,7 @@ things, and all the generality rides on them:
 
 1. **Contract** — every workflow is `solve(question, call_model) -> answer`. It
    *returns* its answer, so nothing has to be parsed back out of prose.
-2. **Metered call site** — `call_model(prompt, max_tokens, model)` is the *only* way a
+2. **Metered call site** — `call_model(prompt, model=...)` is the *only* way a
    workflow can call a model. It's instrumented (counts tokens → USD) and
    budget-capped, so cost is measured at one chokepoint no matter what the code does.
    It returns a `Reply` — a string carrying the full response, so a run can be
