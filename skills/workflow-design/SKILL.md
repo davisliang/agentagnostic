@@ -32,7 +32,7 @@ def solve(question, call_model):
       step-by-step thinking at that depth (Sonnet 5 / Opus 4.8 only; ignored on the
       cheap model). Costs more tokens; the per-query budget still applies.
 - Inside `solve` you may use, with no imports: `re`, `json`, `statistics`,
-  `Counter`, `extract_number(text) -> float | None`, and the list `MODELS`.
+  `Counter`, `extract_last_number(text) -> float | None`, and the list `MODELS`.
 - No file / network / system access inside `solve`.
 - The runtime meters cost and enforces a per-query call/token budget, so keep the
   number of model calls modest.

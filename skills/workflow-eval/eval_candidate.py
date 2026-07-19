@@ -37,7 +37,7 @@ def cost_usd(m, usage):
             + usage["cache_read"] * spec.price_in * CACHE_READ_MULT
             + usage["output"] * spec.price_out) / 1_000_000
 
-def extract_number(text):
+def extract_last_number(text):
     nums = re.findall(r"-?\d[\d,]*\.?\d*", text or "")
     if not nums:
         return None
@@ -52,6 +52,7 @@ TOOL_DEFS = {
 }
 
 MAX_TOOL_TURNS = 5   # cap on API calls while a server-side tool keeps pausing the turn
+
 def _get_usage(msg):
     # Anthropic returns these token counts in the response's usage block.
     return {
@@ -105,7 +106,7 @@ def make_extractor(spec):
     code = spec.get("code")
     if code:
         try:
-            ns = {"re": re, "json": json, "extract_number": extract_number}
+            ns = {"re": re, "json": json, "extract_last_number": extract_last_number}
             exec(code, ns)
             extract = ns["extract"]
             extract("probe 0")          # smoke test: callable and doesn't crash
@@ -115,7 +116,7 @@ def make_extractor(spec):
     t = spec.get("type", "full")
     if t == "last_number":
         def ex(text):
-            n = extract_number(text)
+            n = extract_last_number(text)
             return "" if n is None else (str(int(n)) if n == int(n) else str(n))
         return ex
     if t == "last_line":
@@ -137,7 +138,7 @@ def make_checker(spec, judge_call):
             try:
                 return float(s)
             except ValueError:
-                return extract_number(s)
+                return extract_last_number(s)
         def ck(pred, gold):
             pn, gn = _num(pred), _num(gold)
             return 1.0 if (pn is not None and gn is not None and abs(pn - gn) <= tol) else 0.0
@@ -162,7 +163,7 @@ def make_checker(spec, judge_call):
              f"Candidate answer:\n{pred}\n\n"
              "Score how well the candidate satisfies the rubric for the task, from 0 to 100 "
              "(100 = fully correct/complete, 0 = wrong or empty). Reply with ONLY the number.")
-        n = extract_number(judge_call(jm, q))
+        n = extract_last_number(judge_call(jm, q))
         return 0.0 if n is None else max(0.0, min(1.0, n / 100.0))
     return ck
 
@@ -202,7 +203,7 @@ _B["__import__"] = _imp
 
 def compile_solve(code):
     ns = {"__builtins__": _B, "re": re, "json": json, "statistics": statistics,
-          "Counter": Counter, "extract_number": extract_number,
+          "Counter": Counter, "extract_last_number": extract_last_number,
           "MODELS": MODELS}
     exec(code, ns)
     if not callable(ns.get("solve")):
