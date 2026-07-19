@@ -117,14 +117,20 @@ def _call_api(model, prompt, system=None, tools=None, effort=None, schema=None):
 # ---- Grading an answer (mirrors the notebook) -------------------------------
 # CHECK_TYPE / JUDGE_RUBRIC / JUDGE_TASK come from task_spec.json, set in main().
 JUDGE_MODEL = "claude-haiku-4-5"
-CHECK_TYPE = "exact"
 JUDGE_RUBRIC = ""
 JUDGE_TASK = ""
 
+JUDGE_SCHEMA = {   # the judge replies with a number, not a sentence containing one
+    "type": "object",
+    "properties": {"score": {"type": "integer"}},
+    "required": ["score"],
+    "additionalProperties": False,
+}
+
 def extract_last_number(text):
-    # The last number in the text, or None. A shared helper — used by the numeric
-    # checker, the judge's score parser, and handed to workflow programs so they
-    # can parse their own intermediate results.
+    # The last number in the text, or None. NOT used by grading — it is handed to
+    # workflow programs, which may still want to pull a value out of a free-text
+    # intermediate result mid-pipeline.
     numbers = re.findall(r"-?\d[\d,]*\.?\d*", text or "")
     if not numbers:
         return None
@@ -133,25 +139,35 @@ def extract_last_number(text):
     except ValueError:
         return None
 
+def as_number(value):
+    # A numeric answer must BE a number. A program returns its answer, so there is
+    # nothing to search for: "42" parses, "42 apples" does not. Searching prose for
+    # the last number instead would grade "42 out of 100" as 100.
+    try:
+        return float(str(value).replace(",", "").strip())
+    except ValueError:
+        return None
+
 def judge_score(prediction, gold, rubric="", task=""):
     # Grade a free-form candidate from 0 to 1 against the task rubric (the gold is
-    # an example of a good answer, not the only acceptable one). 0.0 if unparseable.
+    # an example of a good answer, not the only acceptable one). 0.0 if the judge
+    # refuses or its reply doesn't parse.
     criteria = rubric.strip() or "Does the candidate correctly and completely satisfy the task?"
     prompt = (f"Task: {task}\n\nGrading rubric:\n{criteria}\n\n"
               f"Reference (an example of a good answer):\n{gold}\n\n"
               f"Candidate answer:\n{prediction}\n\n"
               "Score how well the candidate satisfies the rubric for the task, from 0 to 100 "
-              "(100 = fully correct/complete, 0 = wrong or empty). Reply with ONLY the number.")
-    reply, _, _ = _call_api(JUDGE_MODEL, prompt)
-    number = extract_last_number(reply)
-    if number is None:
+              "(100 = fully correct/complete, 0 = wrong or empty).")
+    reply, _, _ = _call_api(JUDGE_MODEL, prompt, schema=JUDGE_SCHEMA)
+    try:
+        score = float(json.loads(reply)["score"])
+    except (ValueError, KeyError, TypeError):
         return 0.0
-    return max(0.0, min(1.0, number / 100.0))
+    return max(0.0, min(1.0, score / 100.0))   # a schema can't bound a range, so clamp
 
 def check_answer(prediction, gold, check_type):
     if check_type == "numeric":
-        p = extract_last_number(str(prediction))
-        g = extract_last_number(str(gold))
+        p, g = as_number(prediction), as_number(gold)
         return 1.0 if (p is not None and g is not None and abs(p - g) < 1e-6) else 0.0
     if check_type == "exact":
         return 1.0 if str(prediction).strip().casefold() == str(gold).strip().casefold() else 0.0

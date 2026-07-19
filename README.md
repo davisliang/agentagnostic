@@ -104,7 +104,8 @@ pyproject.toml, uv.lock            deps (anthropic, claude-agent-sdk, jupyter, .
 ## Notes
 
 - Grading returns a **score in [0, 1]** and a program's accuracy is the mean over the
-  dataset. `numeric`/`exact` are 1/0; `llm_judge` is a **graded** score from a cheap model
+  dataset. Nothing is parsed out of prose: `numeric` requires the answer to *be* a number
+  and the judge replies under a schema. `numeric`/`exact` are 1/0; `llm_judge` is a **graded** score from a cheap model
   against a **task-specific rubric** the analyzer writes and validates (generic-rubric
   fallback if it doesn't discriminate). The judge's API calls are the *evaluator's* cost,
   deliberately **not** counted as workflow cost.
