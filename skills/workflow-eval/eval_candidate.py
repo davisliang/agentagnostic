@@ -51,10 +51,11 @@ TOOL_DEFS = {
 
 MAX_TOOL_TURNS = 5   # cap on API calls while a server-side tool keeps pausing the turn
 
-# One output ceiling for every call. NOT a cost knob — you are billed for the
-# tokens a reply actually uses, so a tight cap saves nothing and only risks
-# truncating an answer. Spend is capped by the per-query budget in Runtime.
-MAX_OUTPUT_TOKENS = 16000
+# One output ceiling for every call, set high enough to never be the reason an
+# answer is short. NOT a cost knob — you are billed for the tokens a reply actually
+# uses. It must be generous because THINKING COUNTS AGAINST IT: at effort="max" a
+# 16k ceiling burns the whole budget on thinking and returns an empty answer.
+MAX_OUTPUT_TOKENS = 64000
 
 def _get_usage(msg):
     # Anthropic returns these token counts in the response's usage block.
@@ -95,7 +96,10 @@ def _call_api(model, prompt, system=None, tools=None, effort=None, schema=None):
     turns = 0
     while turns < MAX_TOOL_TURNS:
         turns += 1
-        msg = client.messages.create(**request)
+        # Streamed because MAX_OUTPUT_TOKENS is large: the SDK refuses a
+        # non-streaming request whose ceiling could outlive the HTTP timeout.
+        with client.messages.stream(**request) as stream:
+            msg = stream.get_final_message()
         got = _get_usage(msg)
         usage["input"] += got["input"]
         usage["output"] += got["output"]
@@ -228,13 +232,17 @@ def compile_solve(code):
 
 def final_answer(returned):
     # What solve() handed back, reduced to the string we grade. A program returns
-    # its answer directly, or a dict carrying the answer plus anything else it
-    # wants to keep — only "answer" is ever graded. Returning a schema-constrained
-    # Reply as-is counts too, so `return call_model(p, schema=ANSWER)` grades the
-    # answer rather than the raw JSON wrapping it.
-    if isinstance(returned, Reply) and returned.data:
+    # its answer directly, a dict carrying the answer plus anything else it wants
+    # to keep, or a schema-constrained Reply as-is — all three are unwrapped to the
+    # answer. A structure with no "answer" in it is a contract violation, not an
+    # answer: stringifying it would grade `{'result': 'positive'}` as the
+    # prediction and silently score 0, so raise and let the record show why.
+    if isinstance(returned, Reply) and returned.data is not None:
         returned = returned.data
-    if isinstance(returned, dict) and "answer" in returned:
+    if isinstance(returned, dict):
+        if "answer" not in returned:
+            raise ValueError(
+                f"solve() returned an object with no 'answer' key: {sorted(returned)}")
         returned = returned["answer"]
     return str(returned).strip()
 
