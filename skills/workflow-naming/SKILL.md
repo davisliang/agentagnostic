@@ -45,6 +45,34 @@ decider, and two routers with the same shape but different deciders behave nothi
 alike. Writing `{...}` without naming the decider hides the variable that usually
 explains the result.
 
+## Full identifier: `task/notation@vN`
+
+The notation alone is not unique. It deliberately omits the prompt, so two
+programs with the same shape and different prompts collide — and `H→S` designed
+for `ifeval` is a different program from `H→S` designed for `mmlu_pro`. Qualify it:
+
+```
+ifeval/H→S@v1                     first H→S built for ifeval
+ifeval/H→S@v2                     same structure, different audit prompt
+mmlu_pro/S×5→vote@v1              unrelated to anything above
+ifeval/H→H→{self: stop|S^}@v1
+```
+
+- **`task/`** — the benchmark task the program was designed for. Programs are
+  tuned per task and are not comparable across tasks even when identically shaped.
+- **`@vN`** — bumps when the structure is unchanged but the internals differ:
+  prompt wording, schema fields, a threshold, a regex. This is the escape hatch for
+  everything the notation drops on purpose. Assign in first-seen order per task.
+- `/` and `@` are reserved for this and appear nowhere else in the notation, so
+  the identifier splits unambiguously. (`:` is already taken by `{decider: ...}`.)
+
+Record the code's SHA alongside the identifier in results. The name is for reading;
+the hash is what makes a row reproducible. Two rows sharing a name and differing in
+hash means someone forgot to bump the version.
+
+Identifiers are not filenames — `→` and `|` are fine in a `name` field and not in a
+path. Keep candidate `.py` files named however you like.
+
 ## Examples
 
 ```

@@ -1,0 +1,9 @@
+task:
+  name: gsm8k
+  seed_prompt: >-
+    Grade-school math word problems. Each answer is a single integer.
+
+# Numeric answers are cheap to grade and cheap to generate, so a bigger set costs
+# little and makes the frontier less noisy.
+data:
+  n_examples: 120

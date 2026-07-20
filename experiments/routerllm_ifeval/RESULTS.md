@@ -22,25 +22,30 @@ is a useful check that the cost accounting lines up across the two harnesses.
 
 ## All 13 candidates
 
-Named by structure (see `skills/workflow-naming`): steps in execution order,
-`H`/`S`/`O` = haiku/sonnet/opus, `^` high effort, `~` medium, `#` code execution,
-`{decider: A|B}` a branch and what chooses the arm.
+Identified as `task/notation@vN` (see `skills/workflow-naming`): steps in
+execution order, `H`/`S`/`O` = haiku/sonnet/opus, `^` high effort, `~` medium,
+`#` code execution, `{decider: A|B}` a branch and what chooses the arm. The task
+prefix keeps `H→S` here distinct from `H→S` on another task; `@vN` distinguishes
+programs of identical structure that differ only in prompt or internals. All 13
+here are structurally distinct, so all are `@v1`. `results/ifeval_summary.json`
+carries a `code_sha` per row — same id with a different sha means a missing
+version bump.
 
 | notation | test | $/q |
 |---|---|---|
-| `H→H→{self: stop\|S^}` | 0.957 | 0.01756 |
-| `H→S` | 0.957 | 0.01871 |
-| `S→S~` | 0.957 | 0.02496 |
-| `S→O^` | 0.957 | 0.03932 |
-| `S` | 0.935 | 0.00699 |
-| `H→{re: S#\|H}` | 0.935 | 0.02129 |
-| `H→S^` | 0.935 | 0.02984 |
-| `H` | 0.891 | 0.00163 |
-| `S→S` | 0.891 | 0.02319 |
-| `H→H` | 0.870 | 0.00438 |
-| `H→{re: H#\|H}` | 0.783 | 0.01728 |
-| `H→H#` | 0.674 | 0.02089 |
-| `H#` | 0.522 | 0.02354 |
+| `ifeval/H→H→{self: stop\|S^}@v1` | 0.957 | 0.01756 |
+| `ifeval/H→S@v1` | 0.957 | 0.01871 |
+| `ifeval/S→S~@v1` | 0.957 | 0.02496 |
+| `ifeval/S→O^@v1` | 0.957 | 0.03932 |
+| `ifeval/S@v1` | 0.935 | 0.00699 |
+| `ifeval/H→{re: S#\|H}@v1` | 0.935 | 0.02129 |
+| `ifeval/H→S^@v1` | 0.935 | 0.02984 |
+| `ifeval/H@v1` | 0.891 | 0.00163 |
+| `ifeval/S→S@v1` | 0.891 | 0.02319 |
+| `ifeval/H→H@v1` | 0.870 | 0.00438 |
+| `ifeval/H→{re: H#\|H}@v1` | 0.783 | 0.01728 |
+| `ifeval/H→H#@v1` | 0.674 | 0.02089 |
+| `ifeval/H#@v1` | 0.522 | 0.02354 |
 
 Read the last step of each pipeline and the whole result falls out: **ending in
 `S` or `O` -> 0.957** (the sole exception being `H→S^`, which adds high effort and
