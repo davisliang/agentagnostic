@@ -20,6 +20,34 @@ comparable.
 `haiku_single`'s cost landing on `haiku_only`'s doubled cost (0.00163 vs 0.00161)
 is a useful check that the cost accounting lines up across the two harnesses.
 
+## All 13 candidates
+
+Named by structure (see `skills/workflow-naming`): steps in execution order,
+`H`/`S`/`O` = haiku/sonnet/opus, `^` high effort, `~` medium, `#` code execution,
+`{decider: A|B}` a branch and what chooses the arm.
+
+| notation | test | $/q |
+|---|---|---|
+| `H→H→{self: stop\|S^}` | 0.957 | 0.01756 |
+| `H→S` | 0.957 | 0.01871 |
+| `S→S~` | 0.957 | 0.02496 |
+| `S→O^` | 0.957 | 0.03932 |
+| `S` | 0.935 | 0.00699 |
+| `H→{re: S#\|H}` | 0.935 | 0.02129 |
+| `H→S^` | 0.935 | 0.02984 |
+| `H` | 0.891 | 0.00163 |
+| `S→S` | 0.891 | 0.02319 |
+| `H→H` | 0.870 | 0.00438 |
+| `H→{re: H#\|H}` | 0.783 | 0.01728 |
+| `H→H#` | 0.674 | 0.02089 |
+| `H#` | 0.522 | 0.02354 |
+
+Read the last step of each pipeline and the whole result falls out: **ending in
+`S` or `O` -> 0.957** (the sole exception being `H→S^`, which adds high effort and
+loses an example); **ending in `H` -> at or below the no-audit baseline of 0.891**;
+**anything containing `#` -> worse still.** The auditor's model is the only design
+choice that moved the number.
+
 ## Findings
 
 **The gain is mostly prompting, not workflow structure.** One Haiku call with a

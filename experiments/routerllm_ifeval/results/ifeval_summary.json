@@ -24,7 +24,8 @@
    "internal_cost": 0.0018806,
    "test_accuracy": 0.8913043478260869,
    "test_cost": 0.0016275,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H"
   },
   {
    "name": "haiku_draft_selfcheck",
@@ -36,7 +37,8 @@
    "internal_cost": 0.004935,
    "test_accuracy": 0.8695652173913043,
    "test_cost": 0.00438445652173913,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H\u2192H"
   },
   {
    "name": "sonnet_single",
@@ -48,7 +50,8 @@
    "internal_cost": 0.0092841,
    "test_accuracy": 0.9347826086956522,
    "test_cost": 0.006989347826086957,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "S"
   },
   {
    "name": "sonnet_draft_selfcheck",
@@ -60,7 +63,8 @@
    "internal_cost": 0.02999385,
    "test_accuracy": 0.9565217391304348,
    "test_cost": 0.02496296739130435,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "S\u2192S~"
   },
   {
    "name": "crossmodel_opus_audit",
@@ -72,7 +76,8 @@
    "internal_cost": 0.0438726,
    "test_accuracy": 0.9565217391304348,
    "test_cost": 0.03932334782608696,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "S\u2192O^"
   },
   {
    "name": "router_haiku_selfcheck_escalate",
@@ -84,7 +89,8 @@
    "internal_cost": 0.02712699375,
    "test_accuracy": 0.9565217391304348,
    "test_cost": 0.017556576086956523,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H\u2192H\u2192{self: stop|S^}"
   },
   {
    "name": "haiku_draft_sonnet_audit",
@@ -96,7 +102,8 @@
    "internal_cost": 0.01934506875,
    "test_accuracy": 0.9565217391304348,
    "test_cost": 0.018713896739130435,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H\u2192S"
   },
   {
    "name": "sonnet_draft_sonnet_audit",
@@ -108,7 +115,8 @@
    "internal_cost": 0.02695730625,
    "test_accuracy": 0.8913043478260869,
    "test_cost": 0.023191972826086957,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "S\u2192S"
   },
   {
    "name": "haiku_draft_sonnet_higheffort_audit",
@@ -120,7 +128,8 @@
    "internal_cost": 0.034069525,
    "test_accuracy": 0.9347826086956522,
    "test_cost": 0.029841967391304347,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H\u2192S^"
   },
   {
    "name": "router_haiku_codeexec_by_constraint",
@@ -132,7 +141,8 @@
    "internal_cost": 0.0130655475,
    "test_accuracy": 0.782608695652174,
    "test_cost": 0.01728098695652174,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H\u2192{re: H#|H}"
   },
   {
    "name": "router_sonnet_hard_path",
@@ -144,7 +154,8 @@
    "internal_cost": 0.03614152,
    "test_accuracy": 0.9347826086956522,
    "test_cost": 0.021286989130434784,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H\u2192{re: S#|H}"
   },
   {
    "name": "single_haiku_codeexec",
@@ -156,7 +167,8 @@
    "internal_cost": 0.02237409125,
    "test_accuracy": 0.5217391304347826,
    "test_cost": 0.023535102173913042,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H#"
   },
   {
    "name": "haiku_draft_haiku_codeexec_audit",
@@ -168,7 +180,9 @@
    "internal_cost": 0.02367298375,
    "test_accuracy": 0.6739130434782609,
    "test_cost": 0.020890032608695652,
-   "test_n": 46
+   "test_n": 46,
+   "notation": "H\u2192H#"
   }
- ]
+ ],
+ "notation_spec": "skills/workflow-naming/SKILL.md"
 }

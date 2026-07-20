@@ -112,7 +112,10 @@ never shares the cache.
    candidates that error.
 4. Keep **4–5** diverse, WORKING candidates spanning cheap → accurate. One dev run
    per candidate is enough — don't re-test.
-5. **Your final action MUST be to write `programs.json`** in the working directory:
+5. **Name each candidate by its structure**, using the **workflow-naming** skill —
+   `H→S`, `S×5→vote`, `H→{self: stop|S^}`. Names describe what the program does, not
+   what you hoped it would achieve, so the results table can be compared by name.
+6. **Your final action MUST be to write `programs.json`** in the working directory:
    a JSON list of objects with keys `name`, `description`, `code` (code = the full
    `solve` source). Include every candidate that passed; exclude any that errored.
    Do this even if a candidate was slow — never end the session without writing
