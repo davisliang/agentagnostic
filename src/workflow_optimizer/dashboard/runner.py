@@ -61,10 +61,17 @@ def main(run_id: str) -> int:
         runstore.append_event(run_id, {
             "event": "analyzed", "check": benchmark.grader.kind,
             "description": benchmark.description, "judge_status": benchmark.judge_status,
+            "rubric": benchmark.grader.rubric,
+            "answer_examples": list(benchmark.analysis.answer_examples),
+            "dev_sample": benchmark.dev[:3], "test_sample": benchmark.test[:3],
             "n_dev": len(benchmark.dev), "n_test": len(benchmark.test)})
 
+        def keep_trace(candidate, split, score) -> None:
+            """Persist every model call the candidate made, for the verbose view."""
+            runstore.write_trace(run_id, candidate.name, split, score.records)
+
         search = optimize(cfg, benchmark, session.evaluator(benchmark.grader),
-                          log=log, on_event=emit)
+                          log=log, on_event=emit, on_scored=keep_trace)
 
         report.summarize(search, cfg, log=log)
         report.save(search, cfg, out_dir=directory)

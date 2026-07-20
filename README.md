@@ -40,9 +40,18 @@ searches, watches them run, and compares what they found:
 - **Results** — an accuracy-vs-cost plot with the frontier drawn through it, a
   candidate table with dev and test scores side by side, and each workflow's
   source on click.
+- **Every input and output** — pick a candidate, then **dev calls** / **test
+  calls**: per example, its score, what the workflow returned, the gold answer,
+  and each model call in order with the full prompt sent, the reply received, the
+  model, the cost and the token split. This is how you tell "the strategy is
+  wrong" from "the model got that one wrong". Prompts and replies over 8k chars
+  are clipped, with the full length shown.
+- **The rest of the run** — the grading rule and judge rubric, the answer format
+  shown to the designer, sample dev and test examples, the resolved config, a
+  timeline of milestones, and the full log.
 
 Runs live in `runs/<run_id>/` — the resolved config, a status header, an
-append-only event log, the raw log, and the final result. The server holds no
+append-only event log, the raw log, per-candidate call traces, and the result. The server holds no
 state of its own: it reads those files, and each search runs in its own
 subprocess. Restart the server mid-search and the page picks up where it was.
 

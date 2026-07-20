@@ -73,6 +73,30 @@
         font:11px/1.5 ui-monospace,Menlo,monospace; color:#bdc4d3; margin:0; }
   .desc { color:#8b95a7; font-size:12px; margin:6px 0 8px; line-height:1.5; }
 
+  /* verbose views */
+  details { background:#161b22; border:1px solid #2a313c; border-radius:6px; margin-bottom:6px; }
+  details > summary { cursor:pointer; padding:8px 12px; color:#dde3ef; font-size:12px;
+                      list-style:none; display:flex; gap:10px; align-items:baseline; }
+  details > summary::-webkit-details-marker { display:none; }
+  details > summary:before { content:"▸"; color:#5b667a; font-size:10px; }
+  details[open] > summary:before { content:"▾"; }
+  details > summary:hover { background:#1a2030; }
+  details .inner { padding:0 12px 12px; }
+  .ex-score { font-family:ui-monospace,Menlo,monospace; font-size:11px; }
+  .ex-score.pass { color:#86efac; } .ex-score.fail { color:#fca5a5; }
+  .ex-q { color:#8b95a7; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .call { border-left:2px solid #2f3e63; padding-left:10px; margin:10px 0; }
+  .call .hd { display:flex; gap:10px; align-items:baseline; font-size:11px; margin-bottom:4px; }
+  .call .model { color:#7dd3fc; font-family:ui-monospace,Menlo,monospace; font-weight:600; }
+  .call .cost { color:#7c8699; margin-left:auto; font-family:ui-monospace,Menlo,monospace; }
+  .io-lbl { font-size:10px; color:#7c8699; text-transform:uppercase; letter-spacing:.5px; margin:6px 0 3px; }
+  .clip { color:#fbbf24; font-size:10px; font-style:italic; }
+  .tabs { display:flex; gap:6px; margin:10px 0 8px; flex-wrap:wrap; }
+  .tab { padding:4px 12px; border-radius:6px; background:#161b22; border:1px solid #2a313c;
+         color:#8b95a7; font-size:11px; cursor:pointer; }
+  .tab:hover { background:#1a2030; }
+  .tab.on { background:#1d2742; border-color:#2f3e63; color:#dde3ef; }
+
   form.newrun { display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; margin-bottom:10px; }
   form.newrun .full { grid-column:1 / -1; }
   form.newrun label { display:block; font-size:10px; color:#7c8699; text-transform:uppercase;
@@ -100,6 +124,7 @@
 <script>
 const PHASES = ["queued","analyzing","designing","ranking","done"];
 let activeId = null, timer = null, selectedCandidate = null, showNew = false;
+let candView = "code", traceCache = null, logLines = 400;   // verbose-view state
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const usd = n => n == null ? "—" : "$" + Number(n).toFixed(5);
@@ -206,7 +231,8 @@ function select(id) { activeId = id; selectedCandidate = null; tick(); }
 // ---- detail -----------------------------------------------------------------
 async function loadDetail() {
   if (!activeId) return;
-  const d = await (await fetch("/api/run/" + encodeURIComponent(activeId))).json();
+  const d = await (await fetch("/api/run/" + encodeURIComponent(activeId)
+                             + "?log_lines=" + logLines)).json();
   if (d.error) { document.getElementById("detail").innerHTML = `<div class="empty">run not found</div>`; return; }
   const s = d.status, done = s.state !== "running";
   const cands = d.candidates || [];
@@ -266,12 +292,29 @@ async function loadDetail() {
     if (sel) {
       parts.push(`<h2>${esc(sel.name)}</h2>`);
       if (sel.description) parts.push(`<div class="desc">${esc(sel.description)}</div>`);
-      parts.push(sel.code ? `<pre>${esc(sel.code.trim())}</pre>`
-                          : `<div class="empty">code is written when the search finishes</div>`);
+      parts.push(`<div class="tabs">
+        <span class="tab ${candView === "code" ? "on" : ""}" onclick="setCandView('code')">code</span>
+        <span class="tab ${candView === "dev" ? "on" : ""}" onclick="setCandView('dev')">dev calls</span>
+        <span class="tab ${candView === "test" ? "on" : ""}" onclick="setCandView('test')">test calls</span>
+      </div>`);
+      if (candView === "code") {
+        parts.push(sel.code ? `<pre>${esc(sel.code.trim())}</pre>`
+                            : `<div class="empty">code is written when the search finishes</div>`);
+      } else {
+        parts.push(`<div id="trace">${traceHtml()}</div>`);
+      }
     }
   }
 
-  parts.push(`<h2>log</h2><pre id="log">${esc(d.log || "(no output yet)")}</pre>`);
+  parts.push(`<h2>task input &amp; grading</h2>` + analysisHtml(d.analysis));
+  parts.push(`<h2>config</h2><details><summary>the resolved config this run used</summary>
+    <div class="inner"><pre>${esc(d.config || "(none)")}</pre></div></details>`);
+  parts.push(`<h2>timeline</h2>` + timelineHtml(d.events || []));
+
+  parts.push(`<h2>log
+    <span class="tab ${logLines > 400 ? "on" : ""}" style="float:right;text-transform:none"
+      onclick="toggleLog()">${logLines > 400 ? "show tail" : "show full log"}</span></h2>
+    <pre id="log">${esc(d.log || "(no output yet)")}</pre>`);
 
   // Re-rendering wholesale would throw away where the reader had scrolled to.
   // Keep the log's position, unless it was pinned to the bottom — then follow.
@@ -280,8 +323,11 @@ async function loadDetail() {
   const wasAt = old ? old.scrollTop : 0;
   const pane = document.getElementById("detail");
   const paneAt = pane.scrollTop;
+  // Which disclosures were open, so a refresh doesn't collapse what you opened.
+  const wasOpen = [...pane.querySelectorAll("details")].map(x => x.open);
 
   pane.innerHTML = parts.join("");
+  pane.querySelectorAll("details").forEach((x, i) => { if (wasOpen[i]) x.open = true; });
   pane.scrollTop = paneAt;
   const log = document.getElementById("log");
   if (log) log.scrollTop = wasPinned ? log.scrollHeight : wasAt;
@@ -291,7 +337,99 @@ function stat(lbl, val) {
   return `<div class="card"><div class="lbl">${lbl}</div><div class="stat">${val}</div></div>`;
 }
 
-function pick(name) { selectedCandidate = selectedCandidate === name ? null : name; loadDetail(); }
+function pick(name) {
+  selectedCandidate = selectedCandidate === name ? null : name;
+  traceCache = null;
+  loadDetail();
+  if (selectedCandidate && candView !== "code") loadTrace();
+}
+
+function setCandView(v) { candView = v; traceCache = null; loadDetail(); if (v !== "code") loadTrace(); }
+function toggleLog() { logLines = logLines > 400 ? 400 : 20000; loadDetail(); }
+
+// ---- what the workflow was actually asked, and what came back ----------------
+// Every model call a candidate made, per example: the prompt in, the reply out.
+async function loadTrace() {
+  if (!activeId || !selectedCandidate) return;
+  const url = `/api/trace/${encodeURIComponent(activeId)}?name=${encodeURIComponent(selectedCandidate)}&split=${candView}`;
+  const data = await (await fetch(url)).json();
+  traceCache = data.error ? {error: data.error} : data;
+  const box = document.getElementById("trace");
+  if (box) box.innerHTML = traceHtml();
+}
+
+function traceHtml() {
+  if (!traceCache) return `<div class="empty">loading calls…</div>`;
+  if (traceCache.error) {
+    return `<div class="empty">no calls recorded for this split yet — traces are written
+            as each candidate is scored</div>`;
+  }
+  const rows = (traceCache.records || []).map((r, i) => {
+    const ok = r.score >= 0.999, part = r.score > 0 && !ok;
+    const cls = ok ? "pass" : (part ? "" : "fail");
+    return `<details>
+      <summary>
+        <span class="ex-score ${cls}">${Number(r.score).toFixed(2)}</span>
+        <span class="ex-q">${esc(r.question.text.slice(0, 110))}</span>
+        <span class="cost" style="color:#7c8699;font-family:ui-monospace,Menlo,monospace;font-size:11px">
+          ${usd(r.cost)} · ${r.calls.length} call${r.calls.length === 1 ? "" : "s"}</span>
+      </summary>
+      <div class="inner">
+        ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
+        <div class="io-lbl">returned</div><pre>${esc(r.answer.text) || "(empty)"}</pre>
+        <div class="io-lbl">gold answer</div><pre>${esc(r.gold.text) || "(none)"}</pre>
+        <div class="io-lbl">model calls</div>
+        ${r.calls.map(callHtml).join("") || `<div class="empty">no model calls</div>`}
+      </div></details>`;
+  });
+  return rows.length ? rows.join("") : `<div class="empty">no examples recorded</div>`;
+}
+
+function callHtml(c, i) {
+  const clipped = t => t.clipped ? `<span class="clip">clipped — ${t.chars} chars total</span>` : "";
+  return `<div class="call">
+    <div class="hd"><span class="model">${esc(c.model)}</span>
+      <span style="color:#7c8699">call ${i + 1}</span>
+      <span class="cost">${usd(c.cost)} · in ${c.usage.input + c.usage.cache_read + c.usage.cache_write} / out ${c.usage.output} tok</span></div>
+    <div class="io-lbl">prompt ${clipped(c.prompt)}</div><pre>${esc(c.prompt.text)}</pre>
+    <div class="io-lbl">reply ${clipped(c.reply)}</div><pre>${esc(c.reply.text) || "(empty)"}</pre>
+  </div>`;
+}
+
+// ---- the task as the designer and grader see it -----------------------------
+function analysisHtml(a) {
+  if (!a || !a.check) return `<div class="empty">not analyzed yet</div>`;
+  const sample = (items, label) => items && items.length
+    ? `<div class="io-lbl">${label}</div>` + items.map(x =>
+        `<pre>Q: ${esc(x.question)}\nA: ${esc(x.answer)}</pre>`).join("") : "";
+  return `<details><summary>grading rule, rubric, and example data</summary><div class="inner">
+    <div class="io-lbl">grading</div><div>${esc(a.check)} — ${esc(a.judge_status || "")}</div>
+    ${a.rubric ? `<div class="io-lbl">judge rubric</div><pre>${esc(a.rubric)}</pre>` : ""}
+    ${a.answer_examples && a.answer_examples.length
+      ? `<div class="io-lbl">answer format shown to the designer</div>
+         <pre>${esc(a.answer_examples.join("\n"))}</pre>` : ""}
+    ${sample(a.dev_sample, "dev examples (first 3)")}
+    ${sample(a.test_sample, "held-out test examples (first 3)")}
+  </div></details>`;
+}
+
+function timelineHtml(events) {
+  if (!events.length) return `<div class="empty">nothing yet</div>`;
+  const t0 = events[0].t;
+  return `<div class="card" style="padding:0"><table><tbody>` + events.map(e => {
+    const detail = e.event === "candidate"
+      ? `${e.name} — dev ${acc(e.dev_accuracy)}, ${usd(e.dev_cost)}`
+      : e.event === "test_scored" ? `${e.name} — test ${acc(e.test_accuracy)}, ${usd(e.test_cost)}`
+      : e.event === "analyzed" ? `${e.check} · ${e.n_dev} dev / ${e.n_test} test`
+      : e.event === "round_start" ? `round ${e.round} of ${e.rounds}`
+      : e.event === "ranking" ? `${e.n_finalists} finalist(s) on the dev frontier`
+      : e.error || "";
+    return `<tr><td style="width:60px;color:#5b667a;font-family:ui-monospace,Menlo,monospace">
+        +${Math.round(e.t - t0)}s</td>
+      <td style="width:110px;color:#fbbf24;font-size:11px">${esc(e.event)}</td>
+      <td style="color:#bdc4d3">${esc(detail)}</td></tr>`;
+  }).join("") + `</tbody></table></div>`;
+}
 
 // ---- frontier plot (inline SVG, no libraries) --------------------------------
 function frontierSvg(cands, frontierNames) {

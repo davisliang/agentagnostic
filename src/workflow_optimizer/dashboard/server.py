@@ -15,13 +15,14 @@ that can reach this port can spend it.
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import webbrowser
 from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .. import runstore
 from ..config import load_config
@@ -86,11 +87,13 @@ def start_run(task: str, overrides: dict) -> dict:
     return {"ok": True, "run_id": status.run_id}
 
 
-def run_detail(run_id: str) -> dict:
+def run_detail(run_id: str, log_lines: int = 400) -> dict:
     """Assemble everything the detail pane shows for one run.
 
     Args:
         run_id: The run to describe.
+        log_lines: How many trailing log lines to include. The UI asks for more
+            when the reader opens the full log.
 
     Returns:
         Its status, milestones, candidates (merged from live events and the saved
@@ -132,11 +135,16 @@ def run_detail(run_id: str) -> dict:
         "status": _status_dict(status),
         "analysis": {"check": analyzed.get("check", ""),
                      "description": analyzed.get("description", ""),
-                     "judge_status": analyzed.get("judge_status", "")},
+                     "judge_status": analyzed.get("judge_status", ""),
+                     "rubric": analyzed.get("rubric", ""),
+                     "answer_examples": analyzed.get("answer_examples", []),
+                     "dev_sample": analyzed.get("dev_sample", []),
+                     "test_sample": analyzed.get("test_sample", [])},
         "candidates": list(candidates.values()),
         "frontier": (result or {}).get("frontier", []),
-        "log": runstore.read_log(run_id),
-        "events": events[-60:],
+        "log": runstore.read_log(run_id, max_lines=log_lines),
+        "config": runstore.read_config_text(run_id),
+        "events": events,
     }
 
 
@@ -210,11 +218,25 @@ class Handler(BaseHTTPRequestHandler):
                                    "fields": sorted(FORM_FIELDS)})
             if path == "/api/runs":
                 return self._json({"runs": [_status_dict(s) for s in runstore.list_runs()]})
+            if path.startswith("/api/trace/"):
+                run_id = path[len("/api/trace/"):]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                params = parse_qs(urlparse(self.path).query)
+                name = (params.get("name") or [""])[0]
+                split = (params.get("split") or ["dev"])[0]
+                if split not in ("dev", "test"):
+                    return self._json({"error": "split must be dev or test"}, code=400)
+                trace = runstore.read_trace(run_id, name, split)
+                return self._json(trace or {"error": "no trace recorded"},
+                                  code=200 if trace else 404)
             if path.startswith("/api/run/"):
                 run_id = path[len("/api/run/"):]
                 if not runstore.is_valid_run_id(run_id):
                     return self._json({"error": "bad run id"}, code=400)
-                detail = run_detail(run_id)
+                params = parse_qs(urlparse(self.path).query)
+                lines = min(int((params.get("log_lines") or ["400"])[0] or 400), 20000)
+                detail = run_detail(run_id, log_lines=lines)
                 return self._json(detail, code=404 if detail.get("error") else 200)
             self.send_error(404, "Not Found")
         except Exception as error:
@@ -250,6 +272,13 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--open", action="store_true", help="open a browser on start")
     args = parser.parse_args()
+
+    # Reap finished searches automatically. Without this a completed run stays in
+    # the process table as a zombie, which still answers `kill(pid, 0)` — so the
+    # run list would report a finished run as still running. The server never
+    # calls wait() itself, so nothing here depends on collecting exit statuses.
+    if hasattr(signal, "SIGCHLD"):
+        signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
     runstore.RUNS_DIR.mkdir(parents=True, exist_ok=True)
     url = f"http://{args.host}:{args.port}"

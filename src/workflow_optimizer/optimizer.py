@@ -58,7 +58,7 @@ class Search:
 
 
 def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
-             on_event=None) -> Search:
+             on_event=None, on_scored=None) -> Search:
     """Design candidates, score them on dev, then rank the frontier on test.
 
     Args:
@@ -70,12 +70,17 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
         on_event: Optional `on_event(dict)` called at each milestone —
             "round_start", "candidate", "ranking", "test_scored". Where `log` is
             prose for a terminal, these are structured for a UI to render.
+        on_scored: Optional `on_scored(candidate, split, score)` called as soon as
+            a candidate is scored, with the SplitScore itself. That carries the
+            per-example records and every model call, which are too large for the
+            event stream — a caller that wants them writes them somewhere.
 
     Returns:
         A Search. `finalists` is empty when no candidate survived.
     """
     evaluator = evaluator or Session.from_config(cfg).evaluator(benchmark.grader)
     emit = on_event or (lambda event: None)
+    scored = on_scored or (lambda candidate, split, score: None)
     search = Search()
 
     for round_num in range(1, cfg.designer.rounds + 1):
@@ -89,6 +94,7 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
                                   description=program.get("description", ""),
                                   code=program["code"])
             candidate.dev = evaluator.run(candidate.program, benchmark.dev)
+            scored(candidate, "dev", candidate.dev)
             search.archive.append(candidate)
             log(f"  + {candidate.name:24s} dev acc {candidate.dev.accuracy:.2f}  "
                 f"${candidate.dev.cost:.5f}/query  "
@@ -108,6 +114,7 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
     emit({"event": "ranking", "n_finalists": len(frontier)})
     for candidate in frontier:
         candidate.test = evaluator.run(candidate.program, benchmark.test)
+        scored(candidate, "test", candidate.test)
         search.finalists.append(candidate)
         log(f"  {candidate.name:24s} test acc {candidate.test.accuracy:.2f}  "
             f"${candidate.test.cost:.5f}/query")

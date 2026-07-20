@@ -14,6 +14,7 @@ One directory per run:
       log.txt         raw stdout of the pipeline, including the design agent's
       result.json     the finished search (report.save output)
 """
+import hashlib
 import json
 import os
 import re
@@ -252,6 +253,94 @@ def read_log(run_id: str, max_lines: int = 400) -> str:
     return "\n".join(lines[-max_lines:])
 
 
+def trace_name(candidate: str, split: str) -> str:
+    """Build a filename for one candidate's trace on one split.
+
+    Candidate names are structural — "H×3→vote", "gsm8k/H@v1" — so they contain
+    path separators and other characters a filename can't carry. A short digest
+    keeps two candidates that slugify the same apart.
+
+    Args:
+        candidate: The candidate's name.
+        split: "dev" or "test".
+
+    Returns:
+        A safe filename, e.g. "gsm8k_H_v1.a1b2c3d4.dev.json".
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", candidate).strip("_")[:60] or "candidate"
+    digest = hashlib.sha1(candidate.encode("utf-8")).hexdigest()[:8]
+    return f"{slug}.{digest}.{split}.json"
+
+
+def write_trace(run_id: str, candidate: str, split: str, records: list,
+                max_chars: int = 8000) -> None:
+    """Record every model call one candidate made on one split.
+
+    This is the verbose view: per example, the question, what the workflow
+    returned, what it scored, and each model call's prompt and reply. Prompts and
+    replies are truncated — a reply can run to tens of thousands of tokens, and
+    the point is to read them, not to archive them.
+
+    Args:
+        run_id: The run these belong to.
+        candidate: The candidate's name.
+        split: "dev" or "test".
+        records: `SplitScore.records`.
+        max_chars: Longest prompt or reply text kept, per call.
+    """
+    traces = run_dir(run_id) / "traces"
+    traces.mkdir(exist_ok=True)
+
+    def clip(text) -> dict:
+        text = str(text or "")
+        return {"text": text[:max_chars], "clipped": len(text) > max_chars, "chars": len(text)}
+
+    payload = {"candidate": candidate, "split": split, "records": [
+        {"question": clip(r["question"]), "gold": clip(r["gold"]),
+         "answer": clip(r["answer"]), "score": r["score"], "cost": r["cost"],
+         "error": r["error"],
+         "calls": [{"model": c.model, "cost": c.cost,
+                    "prompt": clip(c.prompt), "reply": clip(c.reply),
+                    "usage": dict(c.reply.usage),
+                    "data": c.reply.data if isinstance(c.reply.data, (dict, list)) else None}
+                   for c in r["calls"]]}
+        for r in records]}
+    (traces / trace_name(candidate, split)).write_text(json.dumps(payload, default=str))
+
+
+def read_trace(run_id: str, candidate: str, split: str) -> Optional[dict]:
+    """Read one candidate's recorded calls on one split.
+
+    Args:
+        run_id: The run to read from.
+        candidate: The candidate's name.
+        split: "dev" or "test".
+
+    Returns:
+        The trace, or None if it wasn't recorded.
+    """
+    path = run_dir(run_id) / "traces" / trace_name(candidate, split)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def read_config_text(run_id: str) -> str:
+    """Read the resolved config a run was started with.
+
+    Args:
+        run_id: The run to read.
+
+    Returns:
+        The YAML as text, or "" if it is missing.
+    """
+    path = run_dir(run_id) / "config.yaml"
+    return path.read_text() if path.exists() else ""
+
+
 def read_result(run_id: str) -> Optional[dict]:
     """Read a finished run's saved search.
 
@@ -327,20 +416,31 @@ def stop_run(run_id: str) -> dict:
 
 
 def _process_alive(pid: Optional[int]) -> bool:
-    """Check whether a process is still running.
+    """Check whether a process is still doing work.
+
+    A dead child that its parent hasn't reaped stays in the process table as a
+    zombie, and `os.kill(pid, 0)` succeeds on one — so signalling alone would
+    report a crashed run as still running, forever. When we are the parent, reap
+    first and let waitpid tell us it has exited.
 
     Args:
         pid: Process id, or None.
 
     Returns:
-        True if a process with that id exists.
+        True only if a live (non-zombie) process has that id.
     """
     if not pid:
         return False
     try:
+        reaped, _ = os.waitpid(pid, os.WNOHANG)
+        if reaped == pid:
+            return False              # it had exited; now reaped
+    except ChildProcessError:
+        pass                          # not our child — fall through to the signal check
+    except (OSError, ValueError):
+        pass
+    try:
         os.kill(pid, 0)
-    except (ProcessLookupError, PermissionError):
-        return False
-    except OSError:
+    except (ProcessLookupError, PermissionError, OSError):
         return False
     return True

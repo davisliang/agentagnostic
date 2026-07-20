@@ -5,6 +5,7 @@ Covers what the run store promises (state survives on disk, ids can't escape
 starting a search spends money. Run with `uv run pytest`.
 """
 import json
+import sys
 
 import pytest
 
@@ -163,3 +164,29 @@ def test_detail_of_an_unknown_run_is_not_found(runs_dir):
 def test_stopping_a_finished_run_says_so(a_run):
     runstore.update_status(a_run.run_id, state="done")
     assert runstore.stop_run(a_run.run_id)["ok"] is False
+
+
+def test_a_zombie_process_does_not_count_as_running(a_run):
+    """A finished-but-unreaped child still answers `kill(pid, 0)`.
+
+    Taken as alive, a crashed run would sit in the list as "running" forever —
+    which is exactly what a real run did before `_process_alive` learned to reap.
+    """
+    import os
+    import subprocess as sp
+    import time
+
+    child = sp.Popen([sys.executable, "-c", "pass"])
+    deadline = time.time() + 5
+    while time.time() < deadline:       # wait for it to actually become a zombie
+        state = sp.run(["ps", "-o", "stat=", "-p", str(child.pid)],
+                       capture_output=True, text=True).stdout.strip()
+        if state.startswith("Z"):
+            break
+        time.sleep(0.05)
+    else:
+        pytest.skip("could not produce a zombie on this platform")
+
+    os.kill(child.pid, 0)               # the zombie is still signallable...
+    runstore.update_status(a_run.run_id, pid=child.pid)
+    assert runstore.list_runs()[0].state == "failed"   # ...but it is not running
