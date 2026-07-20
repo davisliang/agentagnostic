@@ -523,6 +523,18 @@ async function loadDetail() {
   wireFrontierHover();
 }
 
+// Selecting a candidate should take you to it, not leave you hunting for it.
+function revealSelected() {
+  const pane = document.getElementById("detail");
+  const heading = [...pane.querySelectorAll("h2")]
+    .find(h => h.textContent.trim() === (selectedCandidate || "").trim());
+  if (heading) heading.scrollIntoView({behavior: "smooth", block: "start"});
+  else {
+    const row = pane.querySelector("tr.cand.sel");
+    if (row) row.scrollIntoView({behavior: "smooth", block: "center"});
+  }
+}
+
 function stat(lbl, val) {
   return `<div class="card"><div class="lbl">${lbl}</div><div class="stat">${val}</div></div>`;
 }
@@ -530,7 +542,8 @@ function stat(lbl, val) {
 function pick(name) {
   selectedCandidate = selectedCandidate === name ? null : name;
   traceCache = null;
-  loadDetail();
+  hoveringChart = false;
+  loadDetail().then(() => { if (selectedCandidate) revealSelected(); });
   if (selectedCandidate && candView !== "code") loadTrace();
 }
 
@@ -715,8 +728,12 @@ function wireFrontierHover() {
       hoveringChart = false;
     });
     node.addEventListener("click", () => {
+      // Clicking means hovering, and hovering pauses re-render — so release the
+      // guard here or the click does nothing at all.
+      hoveringChart = false;
+      tip.style.display = "none";
       selectedCandidate = frontierPoints[+node.dataset.i].name;
-      loadDetail();
+      loadDetail().then(revealSelected);
     });
   });
 }
