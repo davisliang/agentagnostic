@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from workflow_optimizer import prompts
+from workflow_optimizer import analysis, prompts
 from workflow_optimizer.analysis import Benchmark, TaskAnalysis
 from workflow_optimizer.config import load_config, load_resolved
 from workflow_optimizer.designer import _round_prompt, _stage_agent_dir, summarize_archive
@@ -297,3 +297,32 @@ def test_the_archive_summary_shows_the_frontier_and_the_best_code():
     summary = summarize_archive(archive)
     assert "dud-code" not in summary              # dominated: not worth the agent's context
     assert "good-code" in summary                 # the most accurate, as a base to improve on
+
+
+# ---- a broken grader must not read as a run of zeros ------------------------
+def test_a_grader_that_cannot_read_the_data_fails_before_the_search(cfg):
+    """A grader that raises is caught per example and scored 0.0, so a broken
+    grader looks exactly like a workflow that answers wrongly. This once cost a
+    full search — 9 candidates over 120 examples, every score 0 — to discover
+    that the dataset lacked the `doc` field its grader reads."""
+    def needs_doc(prediction, item):
+        return float(item["doc"]["ok"])          # the field the data hasn't got
+
+    grader = Grader(kind="custom", grade_fn=needs_doc)
+    with pytest.raises(ValueError) as raised:
+        analysis.check_grader(grader, {"question": "q", "answer": "a"})
+    message = str(raised.value)
+    assert "cannot read this dataset" in message
+    assert "KeyError" in message
+    assert "['answer', 'question']" in message   # says what the data actually has
+
+
+def test_a_working_grader_passes_the_check():
+    analysis.check_grader(Grader(kind="exact"), {"question": "q", "answer": "a"})
+    analysis.check_grader(Grader(kind="numeric"), {"question": "q", "answer": "42"})
+
+
+def test_the_judge_is_not_probed(monkeypatch):
+    # probing a judge costs an API call, and it fails by scoring low, not raising
+    judge = Grader(kind="llm_judge", client=None)
+    analysis.check_grader(judge, {"question": "q", "answer": "a"})     # must not call out

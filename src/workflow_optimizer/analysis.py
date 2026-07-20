@@ -96,6 +96,7 @@ def build_benchmark(cfg, client, log=print) -> Benchmark:
         data = datasets.generate_examples(cfg, client, analysis, log=log)
     if len(data) < 2:
         raise ValueError(f"need at least 2 examples to split dev/test, got {len(data)}")
+    check_grader(grader, data[0])
     split = max(1, min(len(data) - 1, int(len(data) * cfg.data.dev_fraction)))
     benchmark = Benchmark(analysis=analysis, grader=grader,
                           dev=data[:split], test=data[split:], judge_status=judge_status)
@@ -107,6 +108,36 @@ def build_benchmark(cfg, client, log=print) -> Benchmark:
         log(f"answers  = {', '.join(repr(e) for e in analysis.answer_examples[:3])}")
     log(f"{len(data)} examples  ->  {len(benchmark.dev)} dev / {len(benchmark.test)} test")
     return benchmark
+
+
+def check_grader(grader: Grader, example: dict) -> None:
+    """Prove the grader can actually grade this data, before a search starts.
+
+    A grader that raises is caught per example and scored 0.0 — which is
+    indistinguishable, in the results, from a workflow that answered wrongly. A
+    whole run of zeros is the symptom, and it costs a full search to discover.
+    This turns that into an immediate error naming what is missing: it once cost
+    9 candidates × 120 examples to learn that a dataset lacked the `doc` field
+    its grader reads.
+
+    Args:
+        grader: The grader the run will use.
+        example: One dataset example, used as the probe.
+
+    Raises:
+        ValueError: The grader raised on a well-formed answer, so it cannot grade
+            this dataset. Judge graders are skipped — probing one costs an API
+            call, and its failure mode is a score, not an exception.
+    """
+    if grader.kind == "llm_judge":
+        return
+    try:
+        grader.score(str(example.get("answer", "")), example)
+    except Exception as error:
+        raise ValueError(
+            f"the grader cannot read this dataset: {type(error).__name__}: {error}. "
+            f"The examples have keys {sorted(example)} — the grader needs something "
+            f"else. Fix the data or the grader before spending a search on it.") from error
 
 
 def analysis_from_config(cfg) -> Optional[TaskAnalysis]:

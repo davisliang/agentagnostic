@@ -35,6 +35,12 @@ GRADERS = {
     "grid":     {"check_type": "exact", "grader": "benchmarks/_graders/grid.py"},
     "judge":    {"check_type": "llm_judge", "grader": None},
 }
+# Fields a benchmark's grader reads beyond question/answer. routerllm's export
+# carries only the rendered prompt and the target, so these are joined back in
+# from the paired dataset — without them the grader raises on every example and
+# the whole run scores 0.
+NEEDS_FIELDS = {"ifeval": ["doc"]}
+
 NATIVE = {
     "ifeval": {"check_type": "exact",
                "grader": "experiments/routerllm_ifeval/grader.py",
@@ -83,6 +89,31 @@ DESCRIPTIONS = {
 }
 
 
+def load_extra_fields(paired: pathlib.Path, task: str, fields: list[str]) -> dict:
+    """Pull grader-only fields out of the paired dataset, keyed by question.
+
+    Args:
+        paired: Path to `router_haiku_opus.jsonl` (large — streamed, not loaded).
+        task: Which task's rows to keep.
+        fields: Keys to carry across, e.g. ["doc"].
+
+    Returns:
+        `{question: {field: value}}`, empty if the file is missing.
+    """
+    if not paired.exists():
+        return {}
+    extra = {}
+    with open(paired) as f:
+        for line in f:
+            if f'"task": "{task}"' not in line and f'"task":"{task}"' not in line:
+                continue                      # cheap prefilter before parsing 121MB
+            row = json.loads(line)
+            if row.get("task") != task:
+                continue
+            extra[row["question"]] = {k: row[k] for k in fields if k in row}
+    return extra
+
+
 def compute_baselines(joined: pathlib.Path, threshold: float = 0.5) -> dict:
     """Recompute routerllm's four reference accuracies per task.
 
@@ -127,6 +158,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=200,
                     help="max examples per benchmark (deterministic sample); 0 keeps all")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--paired", default="/Users/davis/Documents/code/routerllm_june_23_2025",
+                    help="checkout holding router_data/router_haiku_opus.jsonl, for grader fields")
     args = ap.parse_args()
 
     source = pathlib.Path(args.routerllm) / "router_data" / "benchmarks"
@@ -160,8 +193,23 @@ def main() -> int:
 
         target = out_root / name
         target.mkdir(exist_ok=True)
+        # Carry any fields this benchmark's grader needs, or it will raise on
+        # every example and the run will read as a uniform score of zero.
+        extra = {}
+        missing_fields = 0
+        if name in NEEDS_FIELDS:
+            extra = load_extra_fields(
+                pathlib.Path(args.paired) / "router_data" / "router_haiku_opus.jsonl",
+                name, NEEDS_FIELDS[name])
+            missing_fields = sum(1 for r in rows if r["question"] not in extra)
+
         (target / "data.jsonl").write_text("".join(
-            json.dumps({"question": r["question"], "answer": r["answer"]}) + "\n" for r in rows))
+            json.dumps({"question": r["question"], "answer": r["answer"],
+                        **extra.get(r["question"], {})}) + "\n" for r in rows))
+        if name in NEEDS_FIELDS and missing_fields:
+            print(f"   warning: {name} — {missing_fields}/{len(rows)} examples have no "
+                  f"{'/'.join(NEEDS_FIELDS[name])}; its grader will fail on those",
+                  file=sys.stderr)
         (target / "benchmark.yaml").write_text(_benchmark_yaml(
             name=name, meta=meta, kept=len(rows), total=total, seed=args.seed,
             grader_kind=grader_kind, mapping=mapping, supported=supported,
