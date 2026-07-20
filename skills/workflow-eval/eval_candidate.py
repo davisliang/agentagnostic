@@ -10,6 +10,7 @@ Usage: python eval_candidate.py <candidate.py>
 """
 import re, sys, json, statistics, builtins, signal
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 import anthropic
 from pydantic import BaseModel, ConfigDict
@@ -50,6 +51,7 @@ TOOL_DEFS = {
                        "allowed_callers": ["direct"]},
 }
 
+WORKERS = 8          # examples scored concurrently; API latency dominates otherwise
 MAX_TOOL_TURNS = 5   # cap on API calls while a server-side tool keeps pausing the turn
 
 # One output ceiling for every call, set high enough to never be the reason an
@@ -327,22 +329,31 @@ def main():
     # Run the program once per example: grade the answer it RETURNS, and tally
     # what the model calls cost. A program that crashes, hangs, or blows its
     # budget scores 0 on that example instead of sinking the run.
-    scores = []
-    costs = []
-    errors = []
-    for item in dev:
+    def run_one(item):
+        # Own Runtime per example, so they can run concurrently. _with_timeout uses
+        # SIGALRM, which only works on the main thread, so it is skipped off-thread;
+        # the per-query call and token budget still bounds a runaway program.
         runtime = Runtime(DEFAULT_MODEL)
         try:
-            returned = _with_timeout(lambda: solve(item["question"], runtime.call_model), 90)
+            call = lambda: solve(item["question"], runtime.call_model)
+            returned = _with_timeout(call, 90) if WORKERS == 1 else call()
             answer = final_answer(returned)
             # a custom grader sees the whole item: some metrics (ifeval's constraint
             # list, pass@1's tests) need more than the gold answer string.
-            scores.append(grade_custom(answer, item) if grade_custom
-                          else check_answer(answer, item["answer"], CHECK_TYPE))
+            score = (grade_custom(answer, item) if grade_custom
+                     else check_answer(answer, item["answer"], CHECK_TYPE))
+            return score, runtime.cost, None
         except Exception as error:
-            scores.append(0.0)
-            errors.append(str(error)[:80])
-        costs.append(runtime.cost)
+            return 0.0, runtime.cost, str(error)[:80]
+
+    if WORKERS > 1:
+        with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+            outcomes = list(pool.map(run_one, dev))
+    else:
+        outcomes = [run_one(item) for item in dev]
+    scores = [o[0] for o in outcomes]
+    costs = [o[1] for o in outcomes]
+    errors = [o[2] for o in outcomes if o[2]]
 
     print(json.dumps({"ok": True, "accuracy": statistics.mean(scores),
                       "cost_per_query": statistics.mean(costs), "n": len(dev),
