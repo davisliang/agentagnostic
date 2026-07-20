@@ -120,7 +120,8 @@ for rnd in range(1, args.rounds + 1):
         program["dev_records"] = scored["records"]
         archive.append(program)
         print(f"  + {program['name']:26} dev {program['dev_accuracy']:.3f}  "
-              f"${program['dev_cost']:.5f}/q", flush=True)
+              f"${program['dev_cost']:.5f}/q  cached {scored['cached_input_frac']:.0%}",
+              flush=True)
 
 if not archive:
     sys.exit("no candidates survived — nothing to report")

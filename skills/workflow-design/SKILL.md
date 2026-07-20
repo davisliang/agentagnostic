@@ -79,10 +79,27 @@ escalate hard ones, or use `tools=["code_execution"]` so the model computes
 exactly instead of sampling many times. Keep a new candidate only if it stays at
 least as accurate as the best existing workflow while costing less per query.
 
-Resending the **same prompt to the same model** is much cheaper on input: prompt
-caching bills the repeat at ~10% of the input rate (the first send costs a bit more).
-Output tokens are never cached, so this cuts self-consistency's *input* cost but not
-its output cost, and a *different* model never shares the cache.
+**Prompt caching only engages above a per-model size floor — check before relying
+on it.** Resending the same prompt to the same model bills the repeat at ~10% of the
+input rate, but ONLY if the shared prefix is long enough. Below the floor nothing is
+cached and there is no error, just a silently full-price call:
+
+| model | shared prefix must exceed |
+|---|---|
+| `claude-haiku-4-5` | ~4,096 tokens |
+| `claude-opus-4-8` | ~4,096 tokens |
+| `claude-sonnet-5` | ~1,024 tokens |
+
+Short-prompt tasks are the common case and they are all far below this — a one-line
+question with a paragraph of system prompt is ~100 tokens, so caching cannot help at
+all. Do NOT choose a workflow shape on the theory that repeating a prompt is cheap
+unless the prefix is genuinely long (a big system prompt, few-shot examples, a
+document). Verify rather than assume: `reply.usage["cache_read"]` is 0 when nothing
+cached, and the runtime reports the cached share of input tokens for the whole run.
+
+Output tokens are never cached, so even when caching does engage it cuts
+self-consistency's *input* cost but not its output cost, and a *different* model
+never shares the cache.
 
 ## Workflow
 

@@ -65,6 +65,28 @@ Selecting the best of 13 on 60 examples bought several points of illusion.
 different examples between them; only one example is failed by all four. An
 ensemble would likely clear 0.957.
 
+## Prompt caching never engaged
+
+Every call in this run paid full price on input. ifeval's prompt plus system is
+**96 tokens**; caching does not engage below ~4,096 on haiku/opus (~1,024 on
+sonnet), and below that floor it fails silently — no error, `cache_read` simply
+stays 0.
+
+That invalidates one candidate's stated rationale. `sonnet_draft_sonnet_audit`
+justified using the same model twice as "same-model repeat benefits from input
+prompt caching". At 96 tokens that saving was unavailable, so the workflow was
+chosen for a mechanism that could not fire.
+
+The design skill was the source: its cost-reduction section advised that
+resending the same prompt is ~10% of input price, unconditionally. That is true
+for long prefixes and false for every short-prompt benchmark, which is most of
+the 14 tasks. The skill now states the per-model floors, and
+`evaluate_program` reports `cached_input_frac` so a run says plainly that
+nothing cached instead of leaving it to be inferred from the bill.
+
+On this task the real cost lever was making FEWER calls, not cheaper ones —
+which is what `router_haiku_selfcheck_escalate` found.
+
 ## Caveats
 
 - n=46: one example is 2.2 points. Differences under ~4 points are not resolvable.
