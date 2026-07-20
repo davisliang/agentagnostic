@@ -395,7 +395,18 @@ async function loadDetail() {
       <div class="desc">${esc(d.analysis.description)}</div></div>`);
   }
 
-  if (scored.length) parts.push(`<h2>accuracy vs cost (test)</h2>` + frontierSvg(scored, d.frontier || []));
+  // A run that was stopped or failed never reaches test scoring. Plot its dev
+  // numbers rather than showing nothing — the work was done and paid for.
+  const onTest = cands.filter(c => c.test);
+  const plotted = onTest.length ? onTest : cands.filter(c => c.dev);
+  if (plotted.length) {
+    const split = onTest.length ? "test" : "dev";
+    parts.push(`<h2>accuracy vs cost (${split})</h2>` +
+      (onTest.length ? "" : `<div class="desc">This run has no held-out test scores —
+         it did not reach the ranking step. These are dev scores, which the search
+         itself tuned against.</div>`) +
+      frontierSvg(plotted, d.frontier || [], split));
+  }
 
   if (cands.length) {
     parts.push(`<h2>candidates</h2><div class="card" style="padding:0">
@@ -560,9 +571,11 @@ function timelineHtml(events) {
 }
 
 // ---- frontier plot (inline SVG, no libraries) --------------------------------
-function frontierSvg(cands, frontierNames) {
+function frontierSvg(cands, frontierNames, split) {
+  split = split || "test";
+  const at = c => c[split];
   const W = 640, H = 300, P = {l: 52, r: 130, t: 14, b: 38};
-  const costs = cands.map(c => c.test.cost_per_query), accs = cands.map(c => c.test.accuracy);
+  const costs = cands.map(c => at(c).cost_per_query), accs = cands.map(c => at(c).accuracy);
   const c0 = Math.min(...costs), c1 = Math.max(...costs), a0 = Math.min(...accs), a1 = Math.max(...accs);
   const cPad = (c1 - c0) * .15 || Math.max(c0 * .15, 1e-5);
   const aPad = (a1 - a0) * .15 || .05;
@@ -572,8 +585,8 @@ function frontierSvg(cands, frontierNames) {
   const y = a => H - P.b - (aHi === aLo ? .5 : (a - aLo) / (aHi - aLo)) * (H - P.t - P.b);
 
   const front = cands.filter(c => frontierNames.includes(c.name))
-                     .sort((p, q) => p.test.cost_per_query - q.test.cost_per_query);
-  const line = front.map((c, i) => `${i ? "L" : "M"}${x(c.test.cost_per_query).toFixed(1)},${y(c.test.accuracy).toFixed(1)}`).join(" ");
+                     .sort((p, q) => at(p).cost_per_query - at(q).cost_per_query);
+  const line = front.map((c, i) => `${i ? "L" : "M"}${x(at(c).cost_per_query).toFixed(1)},${y(at(c).accuracy).toFixed(1)}`).join(" ");
 
   const ticks = [];
   for (let i = 0; i <= 3; i++) {
@@ -585,9 +598,9 @@ function frontierSvg(cands, frontierNames) {
 
   const dots = cands.map(c => {
     const on = frontierNames.includes(c.name);
-    return `<circle cx="${x(c.test.cost_per_query).toFixed(1)}" cy="${y(c.test.accuracy).toFixed(1)}"
+    return `<circle cx="${x(at(c).cost_per_query).toFixed(1)}" cy="${y(at(c).accuracy).toFixed(1)}"
       r="${on ? 5 : 4}" fill="${on ? "#d9534f" : "#5b667a"}" stroke="#0e1116" stroke-width="1.5">
-      <title>${esc(c.name)} — acc ${acc(c.test.accuracy)}, ${usd(c.test.cost_per_query)}/query</title></circle>`;
+      <title>${esc(c.name)} — acc ${acc(at(c).accuracy)}, ${usd(at(c).cost_per_query)}/query (${split})</title></circle>`;
   }).join("");
 
   const legend = front.slice(0, 8).map((c, i) =>

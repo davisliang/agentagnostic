@@ -332,3 +332,34 @@ def test_a_supplied_dataset_removes_the_generation_cost(runs_dir):
 def test_an_estimate_refuses_the_same_things_a_run_would(runs_dir):
     assert "unknown task" in server.estimate_cost("../etc/passwd", {})["error"]
     assert "bad value" in server.estimate_cost("gsm8k", {"designer.rounds": "; rm -rf /"})["error"]
+
+
+# ---- a stopped or failed run must not lose what it already paid for ---------
+def test_partial_results_are_written_when_a_run_is_cut_short(a_run, monkeypatch):
+    """A stopped ARC run once discarded six scored candidates and ~$260 of work,
+    because results were only written after the very last step."""
+    from workflow_optimizer.dashboard import runner
+    from workflow_optimizer.optimizer import Candidate, Search
+    from workflow_optimizer.runtime import SplitScore
+
+    search = Search(archive=[
+        Candidate("H", "one call", "def solve(q, m): pass", dev=SplitScore("H", 0.4, 0.01)),
+        Candidate("S", "two calls", "def solve(q, m): pass", dev=SplitScore("S", 0.6, 0.02)),
+    ])
+    cfg = load_resolved(runstore.run_dir(a_run.run_id) / "config.yaml")
+    kept = runner._write_result(a_run.run_id, cfg, search)
+
+    assert kept == 2
+    saved = runstore.read_result(a_run.run_id)
+    assert [c["name"] for c in saved["candidates"]] == ["H", "S"]
+    assert saved["candidates"][0]["dev"]["accuracy"] == 0.4
+
+
+def test_writing_results_for_an_empty_search_is_a_no_op(a_run):
+    from workflow_optimizer.dashboard import runner
+    from workflow_optimizer.optimizer import Search
+
+    cfg = load_resolved(runstore.run_dir(a_run.run_id) / "config.yaml")
+    assert runner._write_result(a_run.run_id, cfg, Search()) == 0
+    assert runner._write_result(a_run.run_id, cfg, None) == 0
+    assert runstore.read_result(a_run.run_id) is None

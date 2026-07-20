@@ -58,7 +58,7 @@ class Search:
 
 
 def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
-             on_event=None, on_scored=None) -> Search:
+             on_event=None, on_scored=None, search: "Search" = None) -> Search:
     """Design candidates, score them on dev, then rank the frontier on test.
 
     Args:
@@ -74,6 +74,10 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
             a candidate is scored, with the SplitScore itself. That carries the
             per-example records and every model call, which are too large for the
             event stream — a caller that wants them writes them somewhere.
+        search: An existing Search to fill in. Pass one and the caller keeps a
+            reference to the archive as it grows, so a run that is stopped or
+            crashes half way can still report what it had already scored — a
+            long search represents real money and losing it is not acceptable.
 
     Returns:
         A Search. `finalists` is empty when no candidate survived.
@@ -81,7 +85,7 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
     evaluator = evaluator or Session.from_config(cfg).evaluator(benchmark.grader)
     emit = on_event or (lambda event: None)
     scored = on_scored or (lambda candidate, split, score: None)
-    search = Search()
+    search = search if search is not None else Search()
 
     for round_num in range(1, cfg.designer.rounds + 1):
         log(f"\n===== design round {round_num} / {cfg.designer.rounds} =====")

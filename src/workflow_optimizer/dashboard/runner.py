@@ -8,13 +8,14 @@ from disk rather than from server memory.
 
     python -m workflow_optimizer.dashboard.runner <run_id>
 """
+import signal
 import sys
 import time
 import traceback
 
 from .. import analysis, report, runstore
 from ..config import load_resolved
-from ..optimizer import optimize
+from ..optimizer import Search, optimize
 from ..session import Session
 
 
@@ -70,15 +71,14 @@ def main(run_id: str) -> int:
             """Persist every model call the candidate made, for the verbose view."""
             runstore.write_trace(run_id, candidate.name, split, score.records)
 
-        search = optimize(cfg, benchmark, session.evaluator(benchmark.grader),
-                          log=log, on_event=emit, on_scored=keep_trace)
+        # The caller owns the Search, so the archive survives an interrupt.
+        search = Search()
+        _save_on_exit(run_id, cfg, search, log)
+        optimize(cfg, benchmark, session.evaluator(benchmark.grader),
+                 log=log, on_event=emit, on_scored=keep_trace, search=search)
 
         report.summarize(search, cfg, log=log)
-        report.save(search, cfg, out_dir=directory)
-        # report.save names the file after the task; the UI wants one known name.
-        saved = directory / f"{cfg.task.name}.json"
-        if saved.exists():
-            saved.replace(directory / "result.json")
+        _write_result(run_id, cfg, search)
 
         runstore.update_status(run_id, phase="done", state="done", ended_at=time.time())
         runstore.append_event(run_id, {"event": "done", "n_finalists": len(search.finalists)})
@@ -88,12 +88,62 @@ def main(run_id: str) -> int:
     except Exception as error:
         message = f"{type(error).__name__}: {error}"
         log("\n" + traceback.format_exc())
+        # Keep whatever was already scored — a search that fails in round 3 still
+        # spent real money on rounds 1 and 2.
+        saved = _write_result(run_id, cfg, locals().get("search"))
         runstore.update_status(run_id, phase="failed", state="failed",
                                ended_at=time.time(), error=message)
-        runstore.append_event(run_id, {"event": "failed", "error": message})
+        runstore.append_event(run_id, {"event": "failed", "error": message,
+                                       "kept_candidates": saved})
         return 1
     finally:
         log_file.close()
+
+
+def _write_result(run_id: str, cfg, search) -> int:
+    """Write the run's result file from whatever has been scored so far.
+
+    Args:
+        run_id: The run to write for.
+        cfg: Its config.
+        search: The Search, possibly partial. None or empty writes nothing.
+
+    Returns:
+        How many candidates were saved.
+    """
+    if search is None or not search.archive:
+        return 0
+    directory = runstore.run_dir(run_id)
+    report.save(search, cfg, out_dir=directory)
+    # report.save names the file after the task; the UI wants one known name.
+    saved = directory / f"{cfg.task.name}.json"
+    if saved.exists():
+        saved.replace(directory / "result.json")
+    return len(search.archive)
+
+
+def _save_on_exit(run_id: str, cfg, search, log) -> None:
+    """Save partial results if the run is stopped from the UI.
+
+    Stop sends SIGTERM to the process group. Left to the default handler the
+    process dies where it stands and everything scored so far is lost — one
+    stopped ARC run threw away six scored candidates and about $260 of work.
+
+    Args:
+        run_id: The run being executed.
+        cfg: Its config.
+        search: The Search being filled in.
+        log: Where to note what was kept.
+    """
+    def handler(signum, frame):
+        kept = _write_result(run_id, cfg, search)
+        log(f"\nstopped — kept {kept} scored candidate(s)")
+        runstore.append_event(run_id, {"event": "stopped", "kept_candidates": kept})
+        runstore.update_status(run_id, phase="stopped", state="stopped",
+                               ended_at=time.time())
+        sys.exit(143)
+
+    signal.signal(signal.SIGTERM, handler)
 
 
 if __name__ == "__main__":
