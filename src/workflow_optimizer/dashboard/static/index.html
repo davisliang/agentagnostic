@@ -111,6 +111,9 @@
   .estimate details { background:none; border:none; margin:4px 0 0; }
   .estimate details > summary { padding:2px 0; color:#7dd3fc; font-size:11px; }
   .estimate details .inner { padding:0; }
+  .tip { position:absolute; display:none; pointer-events:none; background:#0a0e14;
+         border:1px solid #2f3e63; border-radius:6px; padding:8px 10px; font-size:11px;
+         line-height:1.55; color:#cfd6e4; max-width:320px; z-index:5; }
   .err { color:#fca5a5; font-size:12px; margin-top:6px; }
 </style>
 </head>
@@ -138,6 +141,7 @@ let activeId = null, timer = null, selectedCandidate = null, showNew = false;
 let candView = "code", traceCache = null, logLines = 400;   // verbose-view state
 let view = "runs", newMode = "benchmark", uploaded = null, benchmarks = [];
 let compareTask = "", comparePoints = [];
+let frontierPoints = [], hoveringChart = false;   // hovering pauses the refresh
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const usd = n => n == null ? "—" : "$" + Number(n).toFixed(5);
@@ -404,6 +408,7 @@ function select(id) { activeId = id; selectedCandidate = null; tick(); }
 // ---- detail -----------------------------------------------------------------
 async function loadDetail() {
   if (!activeId) return;
+  if (hoveringChart) return;      // don't re-render out from under a hovering pointer
   const d = await (await fetch("/api/run/" + encodeURIComponent(activeId)
                              + "?log_lines=" + logLines)).json();
   if (d.error) { document.getElementById("detail").innerHTML = `<div class="empty">run not found</div>`; return; }
@@ -515,6 +520,7 @@ async function loadDetail() {
   pane.scrollTop = paneAt;
   const log = document.getElementById("log");
   if (log) log.scrollTop = wasPinned ? log.scrollHeight : wasAt;
+  wireFrontierHover();
 }
 
 function stat(lbl, val) {
@@ -619,9 +625,13 @@ function timelineHtml(events) {
 function frontierSvg(cands, frontierNames, split) {
   split = split || "test";
   const at = c => c[split];
-  const W = 640, H = 300, P = {l: 52, r: 130, t: 14, b: 38};
+  // Room on the right for labels, which sit beside their point rather than in a
+  // legend — a legend makes you match colours back to rows, and only ever listed
+  // the frontier.
+  const W = 760, H = 340, P = {l: 56, r: 150, t: 16, b: 42};
   const costs = cands.map(c => at(c).cost_per_query), accs = cands.map(c => at(c).accuracy);
-  const c0 = Math.min(...costs), c1 = Math.max(...costs), a0 = Math.min(...accs), a1 = Math.max(...accs);
+  const c0 = Math.min(...costs), c1 = Math.max(...costs);
+  const a0 = Math.min(...accs), a1 = Math.max(...accs);
   const cPad = (c1 - c0) * .15 || Math.max(c0 * .15, 1e-5);
   const aPad = (a1 - a0) * .15 || .05;
   const cLo = Math.max(0, c0 - cPad), cHi = c1 + cPad;
@@ -631,167 +641,84 @@ function frontierSvg(cands, frontierNames, split) {
 
   const front = cands.filter(c => frontierNames.includes(c.name))
                      .sort((p, q) => at(p).cost_per_query - at(q).cost_per_query);
-  const line = front.map((c, i) => `${i ? "L" : "M"}${x(at(c).cost_per_query).toFixed(1)},${y(at(c).accuracy).toFixed(1)}`).join(" ");
+  const line = front.map((c, i) =>
+    `${i ? "L" : "M"}${x(at(c).cost_per_query).toFixed(1)},${y(at(c).accuracy).toFixed(1)}`).join(" ");
 
   const ticks = [];
   for (let i = 0; i <= 3; i++) {
     const a = aLo + (aHi - aLo) * i / 3, c = cLo + (cHi - cLo) * i / 3;
     ticks.push(`<line x1="${P.l}" y1="${y(a).toFixed(1)}" x2="${W - P.r}" y2="${y(a).toFixed(1)}" stroke="#1d242e"/>
       <text x="${P.l - 8}" y="${(y(a) + 3).toFixed(1)}" fill="#5b667a" font-size="10" text-anchor="end">${a.toFixed(2)}</text>
-      <text x="${x(c).toFixed(1)}" y="${H - P.b + 14}" fill="#5b667a" font-size="10" text-anchor="middle">$${c.toFixed(4)}</text>`);
+      <text x="${x(c).toFixed(1)}" y="${H - P.b + 15}" fill="#5b667a" font-size="10" text-anchor="middle">$${c.toFixed(4)}</text>`);
   }
 
-  const dots = cands.map(c => {
+  // Label every point with its name. Nudge labels that would collide, so two
+  // candidates at the same accuracy stay readable.
+  const placed = [];
+  const marks = cands.map((c, i) => {
+    const px = x(at(c).cost_per_query), py = y(at(c).accuracy);
     const on = frontierNames.includes(c.name);
-    return `<circle cx="${x(at(c).cost_per_query).toFixed(1)}" cy="${y(at(c).accuracy).toFixed(1)}"
-      r="${on ? 5 : 4}" fill="${on ? "#d9534f" : "#5b667a"}" stroke="#0e1116" stroke-width="1.5">
-      <title>${esc(c.name)} — acc ${acc(at(c).accuracy)}, ${usd(at(c).cost_per_query)}/query (${split})</title></circle>`;
+    let ly = py + 3;
+    while (placed.some(v => Math.abs(v - ly) < 11)) ly += 11;
+    placed.push(ly);
+    const flip = px > W - P.r - 60;          // near the right edge, label leftwards
+    return `<circle class="fp" data-i="${i}" cx="${px.toFixed(1)}" cy="${py.toFixed(1)}"
+        r="${on ? 5.5 : 4}" fill="${on ? "#d9534f" : "#5b667a"}" stroke="#0e1116"
+        stroke-width="1.5" style="cursor:pointer"/>
+      <text class="fl" data-i="${i}" x="${(flip ? px - 9 : px + 9).toFixed(1)}" y="${ly.toFixed(1)}"
+        text-anchor="${flip ? "end" : "start"}" font-size="10"
+        font-family="ui-monospace,Menlo,monospace" fill="${on ? "#f0a3a1" : "#8b95a7"}"
+        style="cursor:pointer">${esc(c.name.slice(0, 22))}</text>`;
   }).join("");
 
-  const legend = front.slice(0, 8).map((c, i) =>
-    `<text x="${W - P.r + 10}" y="${P.t + 14 + i * 15}" fill="#bdc4d3" font-size="10"
-      font-family="ui-monospace,Menlo,monospace">${esc(c.name.slice(0, 20))}</text>`).join("");
-
-  return `<div class="card"><svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
-    ${ticks.join("")}
-    <path d="${line}" fill="none" stroke="#d9534f" stroke-width="1.5"/>
-    ${dots}${legend}
-    <text x="${(P.l + W - P.r) / 2}" y="${H - 4}" fill="#7c8699" font-size="10" text-anchor="middle">cost per query (USD)</text>
-    <text x="12" y="${H / 2}" fill="#7c8699" font-size="10" text-anchor="middle"
-      transform="rotate(-90 12 ${H / 2})">accuracy</text>
-  </svg></div>`;
-}
-
-// ---- compare: every candidate from every run, on one pair of axes -----------
-function setView(v) {
-  view = v;
-  document.getElementById("tab-runs").className = "tab" + (v === "runs" ? " on" : "");
-  document.getElementById("tab-compare").className = "tab" + (v === "compare" ? " on" : "");
-  tick();
-}
-
-async function loadCompare() {
-  const data = await (await fetch("/api/compare")).json();
-  const points = data.points || [];
-  const pane = document.getElementById("detail");
-  if (!points.length) {
-    pane.innerHTML = `<div class="empty">no scored candidates yet — start a search</div>`;
-    return;
-  }
-  const tasks = [...new Set(points.map(p => p.task))].sort();
-  const at = pane.scrollTop;
-  pane.innerHTML = `<h2>cost vs accuracy — every candidate, every run</h2>
-    <div class="desc">Each point is one workflow. Hover for its details; test scores are used
-      where a candidate has them, dev otherwise. Dashed lines are routerllm's recorded
-      accuracies for that benchmark.</div>
-    ${compareControls(tasks)}
-    ${compareChart(points, data.baselines || {})}
-    ${compareTable(points)}`;
-  pane.scrollTop = at;
-  wireHover();
-}
-
-function compareControls(tasks) {
-  return `<div class="tabs">
-    <span class="tab ${compareTask === "" ? "on" : ""}" onclick="setCompareTask('')">all tasks</span>` +
-    tasks.map(t => `<span class="tab ${compareTask === t ? "on" : ""}"
-      onclick="setCompareTask('${esc(t)}')">${esc(t)}</span>`).join("") + `</div>`;
-}
-function setCompareTask(t) { compareTask = t; loadCompare(); }
-
-function compareChart(allPoints, baselines) {
-  const points = compareTask ? allPoints.filter(p => p.task === compareTask) : allPoints;
-  if (!points.length) return `<div class="empty">nothing for that task yet</div>`;
-  const W = 900, H = 420, P = {l: 62, r: 24, t: 16, b: 46};
-
-  // Cost spans orders of magnitude across strategies, so the x axis is log —
-  // the same choice routerllm's own cost/accuracy chart makes.
-  const costs = points.map(p => Math.max(p.cost, 1e-7));
-  const lo = Math.log10(Math.min(...costs)), hi = Math.log10(Math.max(...costs));
-  const padX = (hi - lo) * 0.08 || 0.3;
-  const x0 = lo - padX, x1 = hi + padX;
-  const refs = compareTask ? (baselines[compareTask] || {}) : {};
-  const accs = points.map(p => p.accuracy)
-    .concat(["haiku", "opus", "router", "oracle"].filter(k => refs[k] != null).map(k => refs[k]));
-  const a0 = Math.max(0, Math.min(...accs) - 0.06), a1 = Math.min(1, Math.max(...accs) + 0.06);
-
-  const x = c => P.l + (Math.log10(Math.max(c, 1e-7)) - x0) / (x1 - x0 || 1) * (W - P.l - P.r);
-  const y = a => H - P.b - (a - a0) / (a1 - a0 || 1) * (H - P.t - P.b);
-
-  const grid = [];
-  for (let i = 0; i <= 4; i++) {
-    const a = a0 + (a1 - a0) * i / 4, c = Math.pow(10, x0 + (x1 - x0) * i / 4);
-    grid.push(`<line x1="${P.l}" y1="${y(a).toFixed(1)}" x2="${W - P.r}" y2="${y(a).toFixed(1)}" stroke="#1d242e"/>
-      <text x="${P.l - 8}" y="${(y(a) + 3).toFixed(1)}" fill="#5b667a" font-size="10" text-anchor="end">${a.toFixed(2)}</text>
-      <text x="${x(c).toFixed(1)}" y="${H - P.b + 15}" fill="#5b667a" font-size="10" text-anchor="middle">$${c < 0.001 ? c.toExponential(1) : c.toFixed(4)}</text>`);
-  }
-
-  const refColors = {haiku: "#7dd3fc", opus: "#c4b5fd", router: "#fbbf24", oracle: "#86efac"};
-  const refLines = Object.entries(refs).filter(([k]) => refColors[k]).map(([k, v]) =>
-    `<line x1="${P.l}" y1="${y(v).toFixed(1)}" x2="${W - P.r}" y2="${y(v).toFixed(1)}"
-       stroke="${refColors[k]}" stroke-width="1" stroke-dasharray="4 3" opacity=".65"/>
-     <text x="${W - P.r - 4}" y="${(y(v) - 4).toFixed(1)}" fill="${refColors[k]}" font-size="9"
-       text-anchor="end">${k} ${acc(v)}</text>`).join("");
-
-  const byTask = [...new Set(points.map(p => p.task))];
-  const hue = t => `hsl(${(byTask.indexOf(t) * 67) % 360} 70% 62%)`;
-  const dots = points.map((p, i) =>
-    `<circle class="cp" data-i="${i}" cx="${x(p.cost).toFixed(1)}" cy="${y(p.accuracy).toFixed(1)}"
-      r="${p.frontier ? 6 : 4}" fill="${compareTask ? (p.frontier ? "#d9534f" : "#5b667a") : hue(p.task)}"
-      stroke="#0e1116" stroke-width="1.5" style="cursor:pointer"/>`).join("");
-
-  comparePoints = points;
+  frontierPoints = cands.map(c => ({...c, _split: split}));
   return `<div class="card" style="position:relative">
-    <svg id="cmp" viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
-      ${grid.join("")}${refLines}${dots}
-      <text x="${(P.l + W - P.r) / 2}" y="${H - 6}" fill="#7c8699" font-size="10" text-anchor="middle">cost per query (USD, log scale)</text>
-      <text x="14" y="${H / 2}" fill="#7c8699" font-size="10" text-anchor="middle" transform="rotate(-90 14 ${H / 2})">accuracy</text>
+    <svg id="fsvg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+      ${ticks.join("")}
+      <path d="${line}" fill="none" stroke="#d9534f" stroke-width="1.5"/>
+      ${marks}
+      <text x="${(P.l + W - P.r) / 2}" y="${H - 5}" fill="#7c8699" font-size="10" text-anchor="middle">cost per query (USD)</text>
+      <text x="14" y="${H / 2}" fill="#7c8699" font-size="10" text-anchor="middle"
+        transform="rotate(-90 14 ${H / 2})">accuracy</text>
     </svg>
-    <div id="tip" style="position:absolute;display:none;pointer-events:none;background:#0a0e14;
-      border:1px solid #2f3e63;border-radius:6px;padding:8px 10px;font-size:11px;line-height:1.55;
-      color:#cfd6e4;max-width:320px;z-index:5"></div></div>`;
+    <div id="ftip" class="tip"></div></div>`;
 }
 
-// Hover is wired after render: the tooltip needs the point data, and inline
-// handlers would have to serialize it into every circle.
-function wireHover() {
-  const svg = document.getElementById("cmp"), tip = document.getElementById("tip");
+// Both charts hover the same way. Native <title> was used here before: it needs
+// a full second of stillness, never fires on a moving pointer, and cannot be
+// styled — which is why it read as "no tooltip at all".
+function wireFrontierHover() {
+  const svg = document.getElementById("fsvg"), tip = document.getElementById("ftip");
   if (!svg || !tip) return;
-  svg.querySelectorAll(".cp").forEach(dot => {
-    dot.addEventListener("mouseenter", ev => {
-      const p = comparePoints[+dot.dataset.i];
-      tip.innerHTML = `<b style="color:#dde3ef">${esc(p.name)}</b>
-        ${p.frontier ? `<span class="tag">frontier</span>` : ""}
-        <div style="color:#7dd3fc;margin-top:2px">${esc(p.task)}</div>
-        <div>accuracy <b>${acc(p.accuracy)}</b> · ${usd(p.cost)}/query
-          <span style="color:#7c8699">(${esc(p.split)})</span></div>
-        ${p.description ? `<div style="color:#8b95a7;margin-top:3px">${esc(p.description.slice(0, 160))}</div>` : ""}
-        <div style="color:#5b667a;margin-top:3px;font-family:ui-monospace,Menlo,monospace">${esc(p.run_id)}</div>`;
-      const box = svg.getBoundingClientRect(), r = dot.getBoundingClientRect();
+  svg.querySelectorAll(".fp, .fl").forEach(node => {
+    node.addEventListener("mouseenter", () => {
+      const c = frontierPoints[+node.dataset.i];
+      const s = c._split, other = s === "test" ? c.dev : c.test;
+      hoveringChart = true;
+      tip.innerHTML = `<b style="color:#dde3ef">${esc(c.name)}</b>
+        <div>accuracy <b>${acc(c[s].accuracy)}</b> · ${usd(c[s].cost_per_query)}/query
+          <span style="color:#7c8699">(${esc(s)})</span></div>
+        ${other ? `<div style="color:#7c8699">${esc(s === "test" ? "dev" : "test")}:
+          ${acc(other.accuracy)} · ${usd(other.cost_per_query)}</div>` : ""}
+        ${c[s].cached_input_frac ? `<div style="color:#7c8699">cached input
+          ${pct(c[s].cached_input_frac)}</div>` : ""}
+        ${(c[s].errors || []).length ? `<div class="warn">${esc(c[s].errors[0])}</div>` : ""}
+        ${c.description ? `<div style="color:#8b95a7;margin-top:3px">${esc(c.description.slice(0, 150))}</div>` : ""}
+        <div style="color:#5b667a;margin-top:3px">click to see its code and calls</div>`;
+      const box = svg.getBoundingClientRect(), r = node.getBoundingClientRect();
       tip.style.display = "block";
-      tip.style.left = Math.min(r.left - box.left + 12, box.width - 330) + "px";
-      tip.style.top = (r.top - box.top + 12) + "px";
+      tip.style.left = Math.min(r.left - box.left + 12, box.width - 320) + "px";
+      tip.style.top = Math.max(0, r.top - box.top - 8) + "px";
     });
-    dot.addEventListener("mouseleave", () => { tip.style.display = "none"; });
-    dot.addEventListener("click", () => {
-      const p = comparePoints[+dot.dataset.i];
-      activeId = p.run_id; selectedCandidate = p.name; setView("runs");
+    node.addEventListener("mouseleave", () => {
+      tip.style.display = "none";
+      hoveringChart = false;
+    });
+    node.addEventListener("click", () => {
+      selectedCandidate = frontierPoints[+node.dataset.i].name;
+      loadDetail();
     });
   });
-}
-
-function compareTable(allPoints) {
-  const points = (compareTask ? allPoints.filter(p => p.task === compareTask) : allPoints)
-    .slice().sort((a, b) => b.accuracy - a.accuracy || a.cost - b.cost);
-  return `<h2>all candidates</h2><div class="card" style="padding:0"><table><thead><tr>
-      <th>workflow</th><th>task</th><th class="num">accuracy</th><th class="num">$/query</th>
-      <th>split</th><th>run</th></tr></thead><tbody>` +
-    points.map(p => `<tr class="cand" onclick="activeId='${esc(p.run_id)}';selectedCandidate='${esc(p.name)}';setView('runs')">
-      <td class="name">${esc(p.name)}${p.frontier ? `<span class="tag">frontier</span>` : ""}</td>
-      <td>${esc(p.task)}</td><td class="num">${acc(p.accuracy)}</td><td class="num">${usd(p.cost)}</td>
-      <td style="color:#7c8699">${esc(p.split)}</td>
-      <td style="color:#5b667a;font-family:ui-monospace,Menlo,monospace;font-size:11px">${esc(p.run_id)}</td>
-    </tr>`).join("") + `</tbody></table></div>`;
 }
 
 // ---- polling ----------------------------------------------------------------
