@@ -291,6 +291,63 @@ def probe_and_estimate(task: str, overrides: dict) -> dict:
                       "accuracy": measured.accuracy, "cost": measured.cost}}
 
 
+def compare_examples(run_id: str, split: str = "dev", limit: int = 200) -> dict:
+    """Line every workflow's answer to the same example up side by side.
+
+    A per-candidate accuracy says which workflow won; it doesn't say where they
+    differed, which is the thing worth reading. Aligning answers by example shows
+    exactly which questions separate a cheap workflow from an expensive one — and
+    whether the expensive one is right for a reason or just lucky.
+
+    Args:
+        run_id: The run to read.
+        split: "dev" or "test".
+        limit: Most rows to return.
+
+    Returns:
+        `{"candidates": [names], "rows": [...], "split": ...}`. Each row carries
+        the question, the gold answer, one cell per candidate, and `spread` —
+        the gap between the best and worst score on that example, so the rows
+        that discriminate can be found first.
+    """
+    status = runstore.read_status(run_id)
+    if status is None:
+        return {"error": "not_found"}
+
+    names = [e["name"] for e in runstore.read_events(run_id)
+             if e.get("event") == "candidate"]
+    traces = [(name, runstore.read_trace(run_id, name, split)) for name in names]
+    traces = [(name, trace) for name, trace in traces if trace]
+    if not traces:
+        return {"candidates": [], "rows": [], "split": split,
+                "note": f"no {split} traces recorded for this run"}
+
+    # Align on the question text. Candidates are scored over the same split in the
+    # same order, but matching on content survives a reordering.
+    rows: dict[str, dict] = {}
+    for name, trace in traces:
+        for record in trace["records"]:
+            question = record["question"]["text"]
+            row = rows.setdefault(question, {
+                "question": question, "gold": record["gold"]["text"], "cells": {}})
+            row["cells"][name] = {
+                "answer": record["answer"]["text"], "clipped": record["answer"]["clipped"],
+                "score": record["score"], "error": record["error"],
+                "cost": record["cost"], "calls": len(record["calls"])}
+
+    candidates = [name for name, _ in traces]
+    out = []
+    for row in rows.values():
+        scores = [c["score"] for c in row["cells"].values()]
+        out.append({**row,
+                    "cells": [row["cells"].get(name) for name in candidates],
+                    "spread": (max(scores) - min(scores)) if scores else 0.0})
+    # Most-disagreed first: a row every workflow got right teaches nothing.
+    out.sort(key=lambda r: (-r["spread"], r["question"]))
+    return {"candidates": candidates, "rows": out[:limit], "split": split,
+            "n_rows": len(out)}
+
+
 def run_detail(run_id: str, log_lines: int = 400) -> dict:
     """Assemble everything the detail pane shows for one run.
 
@@ -458,6 +515,16 @@ class Handler(BaseHTTPRequestHandler):
                     has_dataset=(params.get("has_dataset") or ["0"])[0] == "1"))
             if path == "/api/runs":
                 return self._json({"runs": [_status_dict(s) for s in runstore.list_runs()]})
+            if path.startswith("/api/answers/"):
+                run_id = path[len("/api/answers/"):]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                params = parse_qs(urlparse(self.path).query)
+                split = (params.get("split") or ["dev"])[0]
+                if split not in ("dev", "test"):
+                    return self._json({"error": "split must be dev or test"}, code=400)
+                result = compare_examples(run_id, split)
+                return self._json(result, code=404 if result.get("error") else 200)
             if path.startswith("/api/trace/"):
                 run_id = path[len("/api/trace/"):]
                 if not runstore.is_valid_run_id(run_id):

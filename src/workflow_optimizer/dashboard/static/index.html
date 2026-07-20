@@ -111,6 +111,19 @@
   .estimate details { background:none; border:none; margin:4px 0 0; }
   .estimate details > summary { padding:2px 0; color:#7dd3fc; font-size:11px; }
   .estimate details .inner { padding:0; }
+  table.answers td, table.answers th { vertical-align:top; }
+  table.answers .acol { min-width:190px; font-family:ui-monospace,Menlo,monospace;
+                        color:#dde3ef; text-transform:none; font-size:11px; }
+  table.answers .aq { max-width:280px; font-size:11px; color:#8b95a7; }
+  table.answers .aq details { background:none; border:none; margin:0; }
+  table.answers .aq summary { padding:2px 0; color:#bdc4d3; }
+  .acell { border-left:1px solid #1d242e; }
+  .acell .asc { font-family:ui-monospace,Menlo,monospace; font-size:11px; font-weight:600; }
+  .acell.pass .asc { color:#86efac; } .acell.fail .asc { color:#fca5a5; }
+  .acell.part .asc { color:#fbbf24; }
+  .acell .atxt { color:#8b95a7; font-size:11px; white-space:pre-wrap; word-break:break-word;
+                 max-height:120px; overflow:auto; margin-top:2px;
+                 font-family:ui-monospace,Menlo,monospace; }
   .tip { position:absolute; display:none; pointer-events:none; background:#0a0e14;
          border:1px solid #2f3e63; border-radius:6px; padding:8px 10px; font-size:11px;
          line-height:1.55; color:#cfd6e4; max-width:320px; z-index:5; }
@@ -141,6 +154,7 @@ let activeId = null, timer = null, selectedCandidate = null, showNew = false;
 let candView = "code", traceCache = null, logLines = 400;   // verbose-view state
 let view = "runs", newMode = "benchmark", uploaded = null, benchmarks = [];
 let compareTask = "", comparePoints = [];
+let answersSplit = "", answersData = null;   // side-by-side answers, "" = closed
 let frontierPoints = [], hoveringChart = false;   // hovering pauses the refresh
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -495,6 +509,17 @@ async function loadDetail() {
     }
   }
 
+  if (cands.length > 1) {
+    parts.push(`<h2>same example, every workflow
+      <span class="tab ${answersSplit === "dev" ? "on" : ""}" style="float:right;text-transform:none;margin-left:6px"
+        onclick="showAnswers('dev')">dev</span>
+      <span class="tab ${answersSplit === "test" ? "on" : ""}" style="float:right;text-transform:none"
+        onclick="showAnswers('test')">test</span></h2>
+      <div id="answers">${answersSplit ? answersHtml() :
+        `<div class="empty">pick a split to line every workflow's answers up against the
+          same questions, most-disagreed first</div>`}</div>`);
+    if (answersSplit && (!answersData || answersData._split !== answersSplit)) refreshAnswers();
+  }
   parts.push(`<h2>task input &amp; grading</h2>` + analysisHtml(d.analysis));
   parts.push(`<h2>config</h2><details><summary>the resolved config this run used</summary>
     <div class="inner"><pre>${esc(d.config || "(none)")}</pre></div></details>`);
@@ -597,6 +622,62 @@ function callHtml(c, i) {
     <div class="io-lbl">prompt ${clipped(c.prompt)}</div><pre>${esc(c.prompt.text)}</pre>
     <div class="io-lbl">reply ${clipped(c.reply)}</div><pre>${esc(c.reply.text) || "(empty)"}</pre>
   </div>`;
+}
+
+// ---- the same example, answered by every workflow ---------------------------
+// Accuracy says which workflow won. This says WHERE they differed, which is the
+// part worth reading — and whether the dear one is right for a reason.
+async function showAnswers(split) {
+  answersSplit = answersSplit === split ? "" : split;
+  answersData = null;
+  loadDetail();
+  if (answersSplit) refreshAnswers();
+}
+
+// Fetch the matrix for the open split and drop it into place, without a full
+// re-render — so the 3s refresh does not blank it, the same lesson as the log
+// and the chart tooltip.
+async function refreshAnswers() {
+  const box = document.getElementById("answers");
+  if (!answersData && box) box.innerHTML = `<div class="empty">loading answers…</div>`;
+  const data = await (await fetch(
+    `/api/answers/${encodeURIComponent(activeId)}?split=${answersSplit}`)).json();
+  data._split = answersSplit;
+  answersData = data;
+  const target = document.getElementById("answers");
+  if (target && answersSplit) target.innerHTML = answersHtml();
+}
+
+function answersHtml() {
+  const d = answersData;
+  if (!d) return `<div class="empty">loading…</div>`;
+  if (d.error || d.note) return `<div class="empty">${esc(d.error || d.note)}</div>`;
+  if (!d.rows.length) return `<div class="empty">no examples recorded on this split</div>`;
+
+  const head = d.candidates.map(n =>
+    `<th class="acol">${esc(n)}</th>`).join("");
+  const body = d.rows.map((r, i) => {
+    const cells = r.cells.map(c => {
+      if (!c) return `<td class="acell"><span class="empty">not scored</span></td>`;
+      const cls = c.score >= 0.999 ? "pass" : (c.score > 0 ? "part" : "fail");
+      return `<td class="acell ${cls}">
+        <div class="asc">${c.score.toFixed(2)}${c.error ? " ⚠" : ""}</div>
+        <div class="atxt">${esc((c.answer || "(empty)").slice(0, 260))}${c.clipped ? "…" : ""}</div></td>`;
+    }).join("");
+    return `<tr>
+      <td class="aq">
+        <details><summary>${esc(r.question.slice(0, 90))}…</summary>
+          <div class="inner"><pre>${esc(r.question)}</pre>
+            <div class="io-lbl">gold</div><pre>${esc(r.gold || "(none)")}</pre></div></details>
+        ${r.spread > 0 ? `<span class="tag" style="background:#2a2014;color:#fbbf24;border-color:#7a5018">they disagree</span>` : ""}
+      </td>${cells}</tr>`;
+  }).join("");
+
+  return `<div class="desc">${d.rows.length} example(s) on ${esc(d.split)}, the ones they
+      disagree on first. Click a question to read it in full.</div>
+    <div class="card" style="padding:0;overflow-x:auto">
+      <table class="answers"><thead><tr><th style="min-width:220px">question</th>${head}</tr></thead>
+      <tbody>${body}</tbody></table></div>`;
 }
 
 // ---- the task as the designer and grader see it -----------------------------

@@ -518,3 +518,57 @@ def test_the_estimate_sizes_itself_from_the_dataset_not_the_request():
     assert capped.breakdown["design agent"] == asked.breakdown["design agent"]
     assert capped.expected < asked.expected
     assert any("fewer than the 200 requested" in a for a in capped.assumptions)
+
+
+# ---- comparing answers across workflows, example by example -----------------
+def _write_trace(run_id, name, split, records):
+    """Write a trace file directly, in the shape compare_examples reads."""
+    traces = runstore.run_dir(run_id) / "traces"
+    traces.mkdir(exist_ok=True)
+    payload = {"candidate": name, "split": split, "records": [
+        {"question": {"text": q, "clipped": False}, "gold": {"text": g, "clipped": False},
+         "answer": {"text": a, "clipped": False}, "score": s, "cost": 0.001,
+         "error": None, "calls": []} for q, g, a, s in records]}
+    (traces / runstore.trace_name(name, split)).write_text(json.dumps(payload))
+
+
+def test_answers_line_up_by_example_across_workflows(a_run):
+    for name in ("H", "S"):
+        runstore.append_event(a_run.run_id, {"event": "candidate", "name": name,
+            "description": "", "dev_accuracy": 0.5, "dev_cost": 0.001,
+            "cached_input_frac": 0.0, "errors": []})
+    _write_trace(a_run.run_id, "H", "dev",
+        [("2+2?", "4", "4", 1.0), ("hard one", "42", "41", 0.0)])
+    _write_trace(a_run.run_id, "S", "dev",
+        [("2+2?", "4", "4", 1.0), ("hard one", "42", "42", 1.0)])
+
+    result = server.compare_examples(a_run.run_id, "dev")
+    assert result["candidates"] == ["H", "S"]
+    assert result["n_rows"] == 2
+    # the row they disagree on comes first
+    top = result["rows"][0]
+    assert top["question"] == "hard one"
+    assert top["spread"] == 1.0
+    assert [c["answer"] for c in top["cells"]] == ["41", "42"]
+    assert [c["score"] for c in top["cells"]] == [0.0, 1.0]
+
+
+def test_a_candidate_missing_from_a_split_is_a_gap_not_a_crash(a_run):
+    for name in ("H", "S"):
+        runstore.append_event(a_run.run_id, {"event": "candidate", "name": name,
+            "description": "", "dev_accuracy": 0.5, "dev_cost": 0.001,
+            "cached_input_frac": 0.0, "errors": []})
+    _write_trace(a_run.run_id, "H", "dev", [("q", "a", "a", 1.0)])
+    # S was never scored on dev — only H has a trace
+
+    result = server.compare_examples(a_run.run_id, "dev")
+    assert result["candidates"] == ["H"]        # only the candidates that have traces
+    assert result["rows"][0]["cells"][0]["answer"] == "a"
+
+
+def test_comparing_answers_needs_traces(a_run):
+    runstore.append_event(a_run.run_id, {"event": "candidate", "name": "H",
+        "description": "", "dev_accuracy": 0.5, "dev_cost": 0.001,
+        "cached_input_frac": 0.0, "errors": []})
+    result = server.compare_examples(a_run.run_id, "dev")
+    assert result["rows"] == [] and "no dev traces" in result["note"]

@@ -55,6 +55,10 @@ searches, watches them run, and compares what they found:
   model, the cost and the token split. This is how you tell "the strategy is
   wrong" from "the model got that one wrong". Prompts and replies over 8k chars
   are clipped, with the full length shown.
+- **Same example, every workflow** — a matrix lining up every candidate's answer
+  to the same question side by side, most-disagreed-on examples first. Accuracy
+  says which workflow won; this says where they differed and whether the
+  expensive one is right for a reason.
 - **The rest of the run** — the grading rule and judge rubric, the answer format
   shown to the designer, sample dev and test examples, the resolved config, a
   timeline of milestones, and the full log.
