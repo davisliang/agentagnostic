@@ -53,7 +53,15 @@ def solve(question, call_model):
 - Inside `solve` you may use, with no imports: `re`, `json`, `statistics`,
   `Counter`, `extract_last_number(text) -> float | None`, the list `MODELS`, and
   `ANSWER_SCHEMA`.
-- No file / network / system access inside `solve`.
+- **Candidates run sandboxed.** No file / network / system access inside `solve`,
+  and `import` is limited to this list — importing anything else fails the
+  candidate at compile time, so stay inside it:
+  `re`, `json`, `math`, `statistics`, `collections`, `itertools`, `functools`,
+  `string`, `random`, `time`, `typing`, `dataclasses`, `textwrap`, `operator`,
+  `heapq`, `difflib`, `decimal`, `fractions`.
+  Ordinary Python is otherwise fine — classes, comprehensions, `getattr`, and
+  `try/except` over the usual exception types all work. There is no `open`,
+  `eval`, `exec`, `os`, `sys`, or `subprocess`.
 - There is no output-length knob: every call gets one generous ceiling. You pay for
   the tokens a reply actually uses, so length is controlled by the prompt, not a cap.
 - The runtime meters cost and enforces a per-query call/token budget, so keep the

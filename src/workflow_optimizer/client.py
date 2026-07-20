@@ -1,20 +1,20 @@
-"""The one place anything reaches a model.
+"""The one place anything in this project reaches a model.
 
-Every model call in the project — the task analyzer, the dataset generator, the
-judge, and every call a candidate workflow makes — goes through `LLM.call`.
-That is what makes cost measurable at a single chokepoint no matter what a
-workflow's code does.
+Every model call — the task analyzer, the dataset generator, the judge, and every
+call a candidate workflow makes — goes through `ModelClient.call`. That single
+chokepoint is what makes cost measurable no matter what a workflow's code does.
 """
 import os
 from dataclasses import dataclass, field
+from typing import Optional
 
 import anthropic
 from pydantic import BaseModel
 
-from .models import Catalog
+from .models import ModelCatalog
 
-# Server-side tools: they run on Anthropic's side, so there is nothing to
-# execute locally — the model uses them and the results come back in the reply.
+# Server-side tools. They run on Anthropic's side, so there is nothing to execute
+# locally — the model uses them and the results come back in the same reply.
 TOOL_DEFS = {
     "code_execution": {"type": "code_execution_20260521", "name": "code_execution"},
     # allowed_callers=["direct"] is REQUIRED for the cheap model: the _20260209
@@ -27,31 +27,77 @@ TOOL_DEFS = {
 
 
 @dataclass
-class Call:
-    """One completed model call. `blocks` is every content block from every API
-    response the call made (tool calls, tool results, text), kept for the trace."""
+class ApiResponse:
+    """The result of one completed call to the model API.
+
+    Attributes:
+        text: The final answer text — the last API response's text blocks joined.
+        blocks: Every content block from every API response the call made (tool
+            uses, tool results, text), in order. Kept whole for the trace.
+        usage: Token counts with keys "input", "output", "cache_write" and
+            "cache_read".
+    """
     text: str
     blocks: list = field(default_factory=list)
     usage: dict = field(default_factory=dict)
 
 
-class LLM:
-    """A thin, cache-aware wrapper over the Messages API."""
+class ModelClient:
+    """A thin, cache-aware wrapper over the Anthropic Messages API.
 
-    def __init__(self, catalog: Catalog, call_cfg, client=None):
+    Holds the model catalog and per-call settings so callers pass neither around.
+
+    Attributes:
+        catalog: The models this client may call, and their prices.
+        cfg: A `CallConfig` — output ceiling, tool-turn cap, cache multipliers.
+        client: The underlying Anthropic SDK client.
+    """
+
+    def __init__(self, catalog: ModelCatalog, call_cfg, client=None):
+        """Build a client.
+
+        Args:
+            catalog: The model catalog to route and price against.
+            call_cfg: A `CallConfig`.
+            client: An Anthropic SDK client to use instead of constructing one.
+                Mainly for tests.
+
+        Raises:
+            RuntimeError: No `client` was given and ANTHROPIC_API_KEY is unset.
+                Every call here is a real, billed API call, so this fails early
+                rather than at the first request.
+        """
         if client is None and not os.environ.get("ANTHROPIC_API_KEY"):
             raise RuntimeError("Set ANTHROPIC_API_KEY — every call here is a real API call.")
         self.catalog = catalog
         self.cfg = call_cfg
         self.client = client or anthropic.Anthropic()
 
-    def call(self, model, prompt, system=None, tools=None, effort=None, schema=None) -> Call:
-        """One call, resumed while a server-side tool keeps pausing the turn.
+    def call(self, model: str, prompt, system: Optional[str] = None,
+             tools: Optional[list[str]] = None, effort: Optional[str] = None,
+             schema=None) -> ApiResponse:
+        """Make one model call, resuming it while a server-side tool pauses the turn.
 
         The prompt and system prompt carry a cache breakpoint, so resending the
         SAME prompt to the SAME model bills the repeat at ~10% of the input rate.
         The cache is keyed by model, so a different model is always a fresh miss,
         and prompts under the model's floor (~1-4k tokens) don't cache at all.
+
+        Args:
+            model: API model id to call.
+            prompt: The user message. Stringified, so any object is accepted.
+            system: Optional system prompt.
+            tools: Server-side tool names to enable — "code_execution" and/or
+                "web_search". See TOOL_DEFS.
+            effort: Thinking depth — "low" through "max". Ignored on models that
+                don't support thinking.
+            schema: Constrains the final text to JSON. Either a Pydantic model
+                class or a raw JSON Schema dict. Tool calls in the same reply are
+                unaffected.
+
+        Returns:
+            An ApiResponse carrying the final text, every content block, and the
+            summed token usage across all turns of the call.
         """
         request = self._request(model, prompt, system, tools, effort, schema)
         turn_texts, blocks = [], []
@@ -76,20 +122,33 @@ class LLM:
             request["messages"].append({"role": "assistant", "content": message.content})
 
         # The LAST response holds the answer; earlier ones are the model working
-        # up to it. Concatenating across responses would splice that preamble
-        # onto the answer — and with `schema` set, produce unparseable JSON.
-        return Call(text=turn_texts[-1] if turn_texts else "", blocks=blocks, usage=usage)
+        # up to it. Concatenating across responses would splice that preamble onto
+        # the answer — and with `schema` set, produce unparseable JSON.
+        return ApiResponse(text=turn_texts[-1] if turn_texts else "", blocks=blocks, usage=usage)
 
-    def parse(self, model: str, prompt: str, schema_model: type[BaseModel]):
-        """One structured call, validated straight into `schema_model`.
+    def parse(self, model: str, prompt: str, schema_model: type[BaseModel]) -> BaseModel:
+        """Make one structured call and validate the reply into a Pydantic model.
 
         The reply is guaranteed to match the schema as long as it fits in
-        max_output_tokens — a reply cut off at the ceiling is invalid JSON, so
+        `max_output_tokens` — a reply cut off at the ceiling is invalid JSON, so
         keep expected output well under it.
+
+        Args:
+            model: API model id to call.
+            prompt: The user message.
+            schema_model: The Pydantic class constraining and typing the reply.
+
+        Returns:
+            An instance of `schema_model`.
+
+        Raises:
+            pydantic.ValidationError: The reply did not parse — in practice a
+                refusal, or output truncated at the ceiling.
         """
         return schema_model.model_validate_json(self.call(model, prompt, schema=schema_model).text)
 
     def _request(self, model, prompt, system, tools, effort, schema) -> dict:
+        """Assemble the Messages API request body. See `call` for the arguments."""
         # cache_control "ephemeral" = an auto-expiring cache entry (typically 5m).
         request = {
             "model": model,
@@ -122,8 +181,15 @@ class LLM:
 
 
 def _usage_of(message) -> dict:
-    """The token counts Anthropic returns, split so cached and fresh tokens can
-    be priced differently."""
+    """Extract one response's token counts, split so cached and fresh tokens can
+    be priced differently.
+
+    Args:
+        message: An Anthropic SDK Message.
+
+    Returns:
+        Counts keyed "input", "output", "cache_write", "cache_read".
+    """
     return {
         "input": message.usage.input_tokens,
         "output": message.usage.output_tokens,

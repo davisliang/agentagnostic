@@ -4,7 +4,7 @@ Run from the agent's scratch directory (its cwd): it reads `proposer_config.json
 from there and drives a Claude Agent SDK session. The agent — via the skills
 staged under `./.claude/skills/` — writes its picks to `programs.json`.
 
-    python -m wopt.proposer
+    python -m workflow_optimizer.proposer
 """
 import asyncio
 import json
@@ -16,6 +16,17 @@ from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessag
 
 
 async def main() -> None:
+    """Drive one agent session to completion, echoing its progress to stdout.
+
+    Reads `proposer_config.json` from the current directory: the model to run,
+    the skills to load, the tools to allow, and the prompt. The agent's own
+    output is the side effect — files it writes into the working directory,
+    chiefly `programs.json`.
+
+    Raises:
+        Exception: Anything the SDK raises. The caller below turns it into a
+            non-zero exit so the search can salvage what the agent left behind.
+    """
     cfg = json.loads(open("proposer_config.json").read())
     options = ClaudeAgentOptions(
         model=cfg["model"],

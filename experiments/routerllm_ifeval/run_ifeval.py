@@ -1,165 +1,90 @@
-"""Optimize a workflow for routerllm's ifeval task.
+"""Optimize a workflow for routerllm's ifeval task and report it against that
+repo's recorded baselines.
 
-Reuses the notebook's cells directly (no reimplementation) but swaps in ifeval's
-own constraint checker as the grader, so a score here means what it means in
-routerllm's summary.json.
+Everything task-agnostic comes from `workflow_optimizer`; everything specific to this
+comparison is in `config/task/ifeval.yaml` (the task, its grader, a tighter
+per-query budget) and in the reporting below.
 
-  selection : 100 train examples (notebook splits 60 dev / 40 internal test)
-  reporting : router's 46-example holdout14 subset, untouched during selection
+  selection : 100 train examples (split 60 dev / 40 internal test)
+  reporting : the router's 46-example holdout14 subset, untouched during selection
 
-Usage: run_ifeval.py [--rounds N] [--smoke]
+Usage: python -u run_ifeval.py [--rounds N] [--smoke]
+
+Use `-u`: the design agent's subprocess output is block-buffered otherwise and
+the run looks hung when it isn't.
 """
-import argparse, json, pathlib, statistics, sys, time
+import argparse
+import json
+import pathlib
+import time
+
+from workflow_optimizer import Session, analysis
+from workflow_optimizer.optimizer import optimize
 
 HERE = pathlib.Path(__file__).parent
-REPO = pathlib.Path("/Users/davis/Documents/code/agentagnostic")
-sys.path.insert(0, str(HERE))
-import grader  # noqa: E402  (adds lm-eval to sys.path as a side effect)
 
-ap = argparse.ArgumentParser()
-ap.add_argument("--rounds", type=int, default=3)
-ap.add_argument("--smoke", action="store_true", help="tiny run to prove the wiring")
-ap.add_argument("--data", default=str(HERE),
-                help="dir holding ifeval_train.jsonl / ifeval_test.jsonl (see build_data.py)")
-ap.add_argument("--out", default=str(HERE / "ifeval_result.json"))
-args = ap.parse_args()
-DATA = pathlib.Path(args.data)
+# routerllm's recorded numbers on the same 46 examples, for context in the output.
+BASELINES = {"haiku": 0.848, "opus": 0.891, "router": 0.848, "oracle": 0.957}
 
-# ---- load the notebook's machinery ----------------------------------------
-cells = json.loads((REPO / "workflow_optimizer_v0.ipynb").read_text())["cells"]
-src = lambda i: "".join(cells[i]["source"])
-ns = {"__name__": "nb"}
-for i in (2, 6, 9, 15, 20, 18):        # models, call_model, grading, pareto, runtime, agent
-    exec(src(i), ns)
-# the analyzer's model classes only — not the analyzer itself, which would go
-# infer a task config we already know.
-c12 = src(12)
-exec(c12[:c12.index("def generate_json(")], ns)
 
-# ---- the task ---------------------------------------------------------------
-train = [json.loads(l) for l in open(DATA / "ifeval_train.jsonl")]
-test = [json.loads(l) for l in open(DATA / "ifeval_test.jsonl")]
-for r in train + test:
-    r["answer"] = ""                    # unused: the constraint checker is the grader
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--smoke", action="store_true", help="tiny run to prove the wiring")
+    ap.add_argument("--out", default=str(HERE / "ifeval_result.json"))
+    args = ap.parse_args()
 
-if args.smoke:
-    train, args.rounds = train[:8], 1
+    overrides = [f"designer.rounds={1 if args.smoke else args.rounds}"]
+    if args.smoke:
+        overrides.append("data.n_examples=8")
+    session = Session.load("ifeval", overrides)
+    cfg = session.cfg
 
-DESCRIPTION = (
-    "Follow the instructions in the prompt exactly. Each prompt states one or more "
-    "verifiable formatting constraints — for example: wrap the entire response in "
-    "double quotation marks, write in all lowercase, use exactly N bullet points, "
-    "avoid commas entirely, repeat the prompt before answering, end with a specific "
-    "phrase, or include a postscript. An answer is correct ONLY if it satisfies EVERY "
-    "constraint in the prompt; content quality is not judged at all, only compliance. "
-    "The constraints are stated in the prompt itself, so a response can be checked "
-    "against them before being returned."
-)
+    benchmark = analysis.build_benchmark(cfg, session.client)
+    if args.smoke:                       # 8 examples is enough to prove the wiring
+        benchmark.dev, benchmark.test = benchmark.dev[:5], benchmark.test[:3]
+    held_out = [json.loads(line) for line in open(HERE / "ifeval_test.jsonl")]
 
-ns["analysis"] = ns["TaskConfig"](
-    description=DESCRIPTION, check_type="exact", judge_rubric="",
-    answer_examples=['"The fire consumed my hatred."', "the answer in all lowercase"],
-)
-ns["CHECK_TYPE"] = "custom"
-ns["JUDGE_RUBRIC"] = ""
-ns["GRADER_PATH"] = str(HERE / "grader.py")
+    evaluator = session.evaluator(benchmark.grader)
+    started = time.time()
+    search = optimize(cfg, benchmark, evaluator, log=lambda *a: print(*a, flush=True))
+    if not search.archive:
+        raise SystemExit("no candidates survived — nothing to report")
 
-split = max(1, len(train) * 3 // 5)
-ns["DATA_DEV"], ns["DATA_TEST"] = train[:split], train[split:]
+    # Score EVERY candidate, not just the frontier: ties on a 60-example dev set
+    # are common, and the frontier silently drops the tied-but-pricier ones.
+    print(f"\nscoring all {len(search.archive)} candidates on internal + held-out test", flush=True)
+    results = []
+    for candidate in search.archive:
+        internal = evaluator.run(candidate.program, benchmark.test)
+        held = evaluator.run(candidate.program, held_out)
+        results.append({
+            "name": candidate.name, "description": candidate.description, "code": candidate.code,
+            "dev_accuracy": candidate.dev.accuracy, "dev_cost": candidate.dev.cost,
+            "internal_accuracy": internal.accuracy, "internal_cost": internal.cost,
+            "test_accuracy": held.accuracy, "test_cost": held.cost, "test_n": len(held_out),
+            "test_answers": [{"prompt_hash": item["prompt_hash"], "answer": record["answer"],
+                              "score": record["score"], "error": record["error"]}
+                             for item, record in zip(held_out, held.records)],
+        })
+        print(f"  {candidate.name:26} dev {candidate.dev.accuracy:.3f} | "
+              f"internal {internal.accuracy:.3f} | TEST {held.accuracy:.3f}  "
+              f"${held.cost:.5f}/q", flush=True)
 
-# Tighter than the notebook default: caps a pathological candidate at cents, not
-# dollars, per example. Still allows a generate -> verify -> revise loop.
-_Runtime = ns["Runtime"]
-ns["Runtime"] = lambda m, **kw: _Runtime(m, max_calls=6, token_budget=20_000)
+    spend = (sum(c.dev.cost * len(benchmark.dev) for c in search.archive)
+             + sum(r["internal_cost"] * len(benchmark.test)
+                   + r["test_cost"] * len(held_out) for r in results))
+    pathlib.Path(args.out).write_text(json.dumps({
+        "task": "ifeval", "rounds": cfg.designer.rounds,
+        "n_dev": len(benchmark.dev), "n_internal": len(benchmark.test), "n_test": len(held_out),
+        "baselines_test": BASELINES,
+        "workflow_api_spend_usd": round(spend, 4),
+        "wall_clock_s": round(time.time() - started, 1),
+        "results": results,
+    }, indent=1))
+    print(f"\nworkflow API spend: ${spend:.2f}   wall clock: {(time.time()-started)/60:.1f} min")
+    print(f"written: {args.out}")
 
-# The notebook's compile_solve deliberately runs candidates with full Python.
-# For a benchmark number that is not good enough: nothing would stop a candidate
-# importing grader.py and scoring itself against the metric. Re-apply
-# eval_candidate.py's allowlist so that is impossible rather than merely absent.
-import builtins as _bi
-_ALLOWED = {"re", "json", "math", "statistics", "collections", "itertools",
-            "functools", "string"}
-def _imp(name, *a, **k):
-    if name.split(".")[0] not in _ALLOWED:
-        raise ImportError(f"blocked import in candidate: {name}")
-    return _bi.__import__(name, *a, **k)
-_B = {n: getattr(_bi, n) for n in (
-    "range len min max sum sorted abs round divmod pow enumerate zip map filter "
-    "list dict set tuple str int float bool any all isinstance reversed print "
-    "Exception ValueError KeyError TypeError AttributeError ZeroDivisionError").split()}
-_B["__import__"] = _imp
 
-def _compile_solve(code):
-    import re as _re, json as _json, statistics as _st
-    from collections import Counter as _C
-    nsp = {"__builtins__": _B, "re": _re, "json": _json, "statistics": _st,
-           "Counter": _C, "extract_last_number": ns["extract_last_number"],
-           "MODELS": ns["MODELS"], "ANSWER_SCHEMA": ns["ANSWER_SCHEMA"]}
-    exec(code, nsp)
-    if not callable(nsp.get("solve")):
-        raise ValueError("program does not define solve(question, call_model)")
-    return nsp["solve"]
-ns["compile_solve"] = _compile_solve
-
-BASE_MODEL = ns["MODELS"][0]           # haiku; a workflow may escalate itself
-
-def evaluate(program, data):
-    return ns["evaluate_program"](program, data, BASE_MODEL, grade=grader.grade)
-
-# ---- optimize ----------------------------------------------------------------
-t0, archive = time.time(), []
-for rnd in range(1, args.rounds + 1):
-    print(f"\n{'='*72}\n=== design round {rnd}/{args.rounds}\n{'='*72}", flush=True)
-    context = ns["summarize_archive"](archive)
-    for program in ns["run_design_round"](rnd, context):
-        if any(program["code"] == seen["code"] for seen in archive):
-            continue
-        scored = evaluate(program, ns["DATA_DEV"])
-        program["dev_accuracy"] = scored["accuracy"]
-        program["dev_cost"] = scored["cost_per_query"]
-        program["dev_records"] = scored["records"]
-        archive.append(program)
-        print(f"  + {program['name']:26} dev {program['dev_accuracy']:.3f}  "
-              f"${program['dev_cost']:.5f}/q  cached {scored['cached_input_frac']:.0%}",
-              flush=True)
-
-if not archive:
-    sys.exit("no candidates survived — nothing to report")
-
-# ---- rank on the held-out slice of train, then the router's 46 -------------
-finalists = archive     # score them all: ties on a 60-example dev set are common,
-                       # and the frontier silently drops the tied-but-pricier ones
-print(f"\nscoring all {len(finalists)} candidates on internal + held-out test", flush=True)
-
-results = []
-for p in finalists:
-    internal = evaluate(p, ns["DATA_TEST"])
-    held = evaluate(p, test)
-    results.append({
-        "name": p["name"], "description": p.get("description", ""), "code": p["code"],
-        "dev_accuracy": p["dev_accuracy"], "dev_cost": p["dev_cost"],
-        "internal_accuracy": internal["accuracy"], "internal_cost": internal["cost_per_query"],
-        "test_accuracy": held["accuracy"], "test_cost": held["cost_per_query"],
-        "test_n": len(test),
-        "test_answers": [{"prompt_hash": t["prompt_hash"], "answer": r["answer"],
-                          "score": r["score"], "error": r["error"]}
-                         for t, r in zip(test, held["records"])],
-    })
-    print(f"  {p['name']:26} dev {p['dev_accuracy']:.3f} | internal {internal['accuracy']:.3f} "
-          f"| TEST {held['accuracy']:.3f}  ${held['cost_per_query']:.5f}/q", flush=True)
-
-spend = sum(r["dev_cost"] * len(ns["DATA_DEV"]) for r in
-            [{"dev_cost": p["dev_cost"]} for p in archive]) \
-      + sum(r["internal_cost"] * len(ns["DATA_TEST"]) + r["test_cost"] * len(test) for r in results)
-
-pathlib.Path(args.out).write_text(json.dumps({
-    "task": "ifeval", "rounds": args.rounds,
-    "n_train": len(train), "n_dev": len(ns["DATA_DEV"]),
-    "n_internal": len(ns["DATA_TEST"]), "n_test": len(test),
-    "baselines_test": {"haiku": 0.848, "opus": 0.891, "router": 0.848, "oracle": 0.957},
-    "workflow_api_spend_usd": round(spend, 4),
-    "wall_clock_s": round(time.time() - t0, 1),
-    "results": results,
-}, indent=1))
-print(f"\nworkflow API spend: ${spend:.2f}   wall clock: {(time.time()-t0)/60:.1f} min")
-print(f"written: {args.out}")
+if __name__ == "__main__":
+    main()

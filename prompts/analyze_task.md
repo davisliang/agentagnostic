@@ -12,7 +12,7 @@ Reply with:
   criteria) defining what makes a candidate output correct / high-quality for
   THIS task; it grades candidates from 0 to 100. It is calibration-checked
   before use: scored under it, an ideal reference answer must reach at least
-  ${min_gold}, and an EMPTY answer must stay at or below ${max_empty} — a rubric
+  ${min_gold_score}, and an EMPTY answer must stay at or below ${max_empty_score} — a rubric
   that fails either is thrown away for a generic one. So write criteria that
   AWARD points for the qualities a good answer has, not only ones that deduct
   for faults: a rubric phrased purely as penalties gives an empty answer full

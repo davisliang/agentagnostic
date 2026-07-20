@@ -1,0 +1,30 @@
+# routerllm's ifeval slice: an answer counts only if it satisfies EVERY
+# formatting constraint stated in the prompt. See experiments/routerllm_ifeval/.
+#
+# The shape of this task is already known, so `description` is given directly and
+# the analyzer never runs — and grading uses lm-eval's own checker, so a score
+# here means what it means in routerllm's summary.json.
+task:
+  name: ifeval
+  description: >-
+    Follow the instructions in the prompt exactly. Each prompt states one or more
+    verifiable formatting constraints — for example: wrap the entire response in
+    double quotation marks, write in all lowercase, use exactly N bullet points,
+    avoid commas entirely, repeat the prompt before answering, end with a specific
+    phrase, or include a postscript. An answer is correct ONLY if it satisfies
+    EVERY constraint in the prompt; content quality is not judged at all, only
+    compliance. The constraints are stated in the prompt itself, so a response can
+    be checked against them before being returned.
+  check_type: exact           # unused: the grader below scores instead
+  answer_examples:
+    - '"The fire consumed my hatred."'
+    - the answer in all lowercase
+  # built by experiments/routerllm_ifeval/build_data.py; not committed
+  dataset: experiments/routerllm_ifeval/ifeval_train.jsonl
+  grader: experiments/routerllm_ifeval/grader.py
+
+# Tighter than the default: caps a pathological candidate at cents, not dollars,
+# per example. Still allows a generate -> verify -> revise loop.
+runtime:
+  max_model_calls: 6
+  max_tokens: 20000

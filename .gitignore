@@ -11,5 +11,8 @@ venv/
 .env
 .env.*
 
+# Run outputs
+runs/
+
 # OS
 .DS_Store

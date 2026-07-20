@@ -51,11 +51,22 @@ match to `holdout14_examples.jsonl`.
 
 ## Run
 
-    ANTHROPIC_API_KEY=... python -u run_ifeval.py --rounds 3
-    python -u run_ifeval.py --smoke        # 8 examples, 1 round, proves the wiring
+Build the two slices first — they are derived from the routerllm checkouts and are
+not committed here, so nothing runs until this has been done once:
+
+    uv run python build_data.py --out .     # writes ifeval_{train,test}.jsonl
+
+Then:
+
+    ANTHROPIC_API_KEY=... uv run python -u run_ifeval.py --rounds 3
+    uv run python -u run_ifeval.py --smoke # 8 examples, 1 round, proves the wiring
 
 Use `-u`: the design agent's subprocess output is block-buffered otherwise and
 the run looks hung when it isn't.
+
+The task itself — description, data, grader, and a tighter per-query budget than
+the default — is `config/task/ifeval.yaml`; this script only adds the reporting
+against routerllm's recorded baselines. Everything else comes from `workflow_optimizer`.
 
 Paths to the routerllm checkout are absolute in `grader.py` — adjust if the
 sibling repo moves.
