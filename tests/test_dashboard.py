@@ -363,3 +363,26 @@ def test_writing_results_for_an_empty_search_is_a_no_op(a_run):
     assert runner._write_result(a_run.run_id, cfg, Search()) == 0
     assert runner._write_result(a_run.run_id, cfg, None) == 0
     assert runstore.read_result(a_run.run_id) is None
+
+
+def test_the_agent_cost_line_matches_what_the_proposer_prints():
+    """The design agent's spend crosses a process boundary as a log line, so the
+    two sides are only connected by this format. Nothing else would notice if
+    one drifted — the estimator would just silently keep using its default."""
+    from workflow_optimizer.designer import AGENT_COST
+
+    # built exactly as proposer.py builds it
+    cost, turns = 1.2345, 37
+    line = f"[agent cost: ${cost:.4f} over {turns} turns]"
+
+    found = AGENT_COST.search(line)
+    assert found, f"designer cannot parse the line proposer prints: {line!r}"
+    assert float(found.group(1)) == pytest.approx(cost, abs=1e-4)
+    assert int(found.group(2)) == turns
+
+
+def test_the_agent_cost_line_is_found_amid_other_output():
+    from workflow_optimizer.designer import AGENT_COST
+    assert AGENT_COST.search("  [tool] Bash") is None
+    assert AGENT_COST.search("[agent finished: success]") is None
+    assert AGENT_COST.search("[agent cost: $0.0500 over 3 turns]").group(1) == "0.0500"
