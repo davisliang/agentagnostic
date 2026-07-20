@@ -94,6 +94,8 @@ def build_benchmark(cfg, client, log=print) -> Benchmark:
 
     if data is None:
         data = datasets.generate_examples(cfg, client, analysis, log=log)
+    else:
+        data = datasets.take(data, int(cfg.data.n_examples), log=log)
     if len(data) < 2:
         raise ValueError(f"need at least 2 examples to split dev/test, got {len(data)}")
     check_grader(grader, data[0])

@@ -502,3 +502,19 @@ def test_a_probe_overrides_history_and_says_so():
     without = costs.estimate(cfg, history)
     assert with_probe.expected < without.expected      # the probe says it is cheap
     assert any("derived from that probe" in a for a in with_probe.assumptions)
+
+
+def test_the_estimate_sizes_itself_from_the_dataset_not_the_request():
+    """A run scores min(n_examples, dataset size); an estimate that assumes
+    n_examples is out by the ratio between them."""
+    cfg = load_config("gsm8k", ["data.n_examples=200"])
+    asked = costs.estimate(cfg, {})
+    capped = costs.estimate(cfg, {}, available=40)
+
+    # the example-dependent work scales with the real count; the design agent,
+    # which is fixed per round, does not — so the total falls by less than 5x
+    assert capped.breakdown["score on dev"] == pytest.approx(
+        asked.breakdown["score on dev"] / 5, rel=0.05)
+    assert capped.breakdown["design agent"] == asked.breakdown["design agent"]
+    assert capped.expected < asked.expected
+    assert any("fewer than the 200 requested" in a for a in capped.assumptions)

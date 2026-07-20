@@ -326,3 +326,32 @@ def test_the_judge_is_not_probed(monkeypatch):
     # probing a judge costs an API call, and it fails by scoring low, not raising
     judge = Grader(kind="llm_judge", client=None)
     analysis.check_grader(judge, {"question": "q", "answer": "a"})     # must not call out
+
+
+# ---- n_examples has to mean the same thing for loaded and generated data -----
+def test_n_examples_caps_a_loaded_dataset():
+    """Asking for 40 against a 200-row benchmark used to run all 200 — and the
+    cost estimate, which sizes itself from n_examples, understated it 5x."""
+    from workflow_optimizer import dataset as datasets
+
+    data = [{"question": f"q{i}", "answer": str(i)} for i in range(200)]
+    taken = datasets.take(data, 40, log=lambda *a: None)
+    assert len(taken) == 40
+    assert all(item in data for item in taken)
+
+
+def test_taking_is_deterministic_so_two_runs_are_comparable():
+    from workflow_optimizer import dataset as datasets
+
+    data = [{"question": f"q{i}", "answer": str(i)} for i in range(200)]
+    first = datasets.take(data, 40, log=lambda *a: None)
+    second = datasets.take(data, 40, log=lambda *a: None)
+    assert [d["question"] for d in first] == [d["question"] for d in second]
+
+
+def test_asking_for_more_than_exists_keeps_everything():
+    from workflow_optimizer import dataset as datasets
+
+    data = [{"question": f"q{i}", "answer": str(i)} for i in range(10)]
+    assert len(datasets.take(data, 40, log=lambda *a: None)) == 10
+    assert len(datasets.take(data, 0, log=lambda *a: None)) == 10      # 0 means all

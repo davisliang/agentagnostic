@@ -123,7 +123,8 @@ def observed(runs: list) -> dict:
 
 
 def estimate(cfg, history: dict = None, generates_data: bool = None,
-             judged: bool = None, probe: "Probe" = None) -> Estimate:
+             judged: bool = None, probe: "Probe" = None,
+             available: int = None) -> Estimate:
     """Estimate the cost of running a search with this config.
 
     Args:
@@ -138,6 +139,9 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
         probe: A `run_probe` measurement. When given it replaces both history and
             defaults for cost per query — it is the only input measured on THIS
             task, right now, and it needs no prior runs to exist.
+        available: How many examples the task's dataset actually holds. The run
+            scores `min(n_examples, available)`, so an estimate that ignores this
+            can be out by the ratio between them.
 
     Returns:
         An Estimate. Its `assumptions` list is the point: every figure it used,
@@ -179,7 +183,14 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
         return fallback
 
     rounds = int(cfg.designer.rounds)
+    # What will actually be scored, which is not always what was asked for: a
+    # supplied dataset may hold fewer examples than the setting requests.
     n_examples = int(cfg.data.n_examples)
+    if available is not None:
+        n_examples = min(n_examples, available) if n_examples > 0 else available
+        if available < int(cfg.data.n_examples):
+            notes.append(f"the dataset has {available} examples, fewer than the "
+                         f"{int(cfg.data.n_examples)} requested")
     dev = max(1, int(n_examples * float(cfg.data.dev_fraction)))
     test = max(1, n_examples - dev)
 

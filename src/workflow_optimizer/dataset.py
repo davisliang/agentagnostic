@@ -13,6 +13,7 @@ the model with the request. Those docstrings are prompt text as well as comments
 — keep developer asides in `#` comments, which are not transmitted.
 """
 import json
+import random
 import re
 from typing import Optional
 
@@ -74,6 +75,34 @@ def load_examples(path) -> Optional[list[dict]]:
         return None
     with open(paths.resolve(path)) as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def take(data: list[dict], n_examples: int, log=print, seed: int = 0) -> list[dict]:
+    """Cut a loaded dataset down to the number of examples asked for.
+
+    `n_examples` used to apply only to GENERATED data, so a benchmark that ships
+    200 rows ran all 200 however few were asked for — and the cost estimate,
+    which sizes itself from `n_examples`, understated the run by the same factor.
+    Applying it to both makes the setting mean one thing.
+
+    Sampling is deterministic so two runs at the same size score the same
+    examples and their numbers can be compared.
+
+    Args:
+        data: The loaded examples.
+        n_examples: How many to keep. 0 or less keeps all of them.
+        log: Where to note what was taken.
+        seed: Seed for the sample.
+
+    Returns:
+        Up to `n_examples` examples, or all of them if there are fewer.
+    """
+    if n_examples <= 0 or len(data) <= n_examples:
+        if n_examples > len(data):
+            log(f"dataset has {len(data)} examples, fewer than the {n_examples} asked for")
+        return data
+    log(f"using {n_examples} of {len(data)} examples (random.Random({seed}).sample)")
+    return random.Random(seed).sample(data, n_examples)
 
 
 def generate_examples(cfg, client, analysis, log=print) -> list[dict]:

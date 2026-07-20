@@ -20,12 +20,14 @@ import subprocess
 import sys
 import webbrowser
 from dataclasses import asdict
+from typing import Optional
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .. import costs, runstore
 from ..config import load_config
+from .. import paths
 from ..paths import ROOT
 
 STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
@@ -227,7 +229,8 @@ def estimate_cost(task: str, overrides: dict, freetext: bool = False,
                               for s in runstore.list_runs()])
     generates = not (has_dataset or (not freetext and bool(cfg.task.dataset)))
     guess = costs.estimate(cfg, history, generates_data=generates,
-                           judged=None if not freetext else False)
+                           judged=None if not freetext else False,
+                           available=_dataset_size(cfg))
     return {"low": guess.low, "expected": guess.expected, "high": guess.high,
             "breakdown": guess.breakdown, "assumptions": guess.assumptions,
             "based_on_runs": guess.based_on_runs}
@@ -277,7 +280,8 @@ def probe_and_estimate(task: str, overrides: dict) -> dict:
 
     history = costs.observed([(s.task, runstore.read_events(s.run_id))
                               for s in runstore.list_runs()])
-    guess = costs.estimate(cfg, history, generates_data=False, probe=measured)
+    guess = costs.estimate(cfg, history, generates_data=False, probe=measured,
+                           available=_dataset_size(cfg))
     return {"low": guess.low, "expected": guess.expected, "high": guess.high,
             "breakdown": guess.breakdown, "assumptions": guess.assumptions,
             "based_on_runs": guess.based_on_runs,
@@ -346,6 +350,30 @@ def run_detail(run_id: str, log_lines: int = 400) -> dict:
         "config": runstore.read_config_text(run_id),
         "events": events,
     }
+
+
+def _dataset_size(cfg) -> Optional[int]:
+    """Count the examples a task's dataset actually holds.
+
+    The run scores `min(n_examples, this)`, so an estimate that assumes
+    `n_examples` can be out by the ratio — a request for 40 against a
+    200-example benchmark understated a run fivefold before `n_examples` was
+    applied to loaded data.
+
+    Args:
+        cfg: The run config.
+
+    Returns:
+        The row count, or None if the task generates its own examples or the file
+        cannot be read.
+    """
+    if not cfg.task.dataset:
+        return None
+    try:
+        with open(paths.resolve(cfg.task.dataset)) as f:
+            return sum(1 for line in f if line.strip())
+    except OSError:
+        return None
 
 
 def _status_dict(status) -> dict:
