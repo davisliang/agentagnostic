@@ -8,7 +8,8 @@ hands you the accuracy/cost **Pareto frontier** to pick from.
 ```sh
 export ANTHROPIC_API_KEY=...
 uv sync
-uv run workflow-optimizer --task gsm8k                     # a file under config/task/
+uv run workflow-optimizer-ui --open                        # the UI, at :8770
+uv run workflow-optimizer --task gsm8k                     # or headless
 uv run workflow-optimizer --task gsm8k designer.rounds=1   # override any config key
 ```
 
@@ -23,6 +24,30 @@ benchmark = analysis.build_benchmark(session.cfg, session.client)
 search = optimize(session.cfg, benchmark, session.evaluator(benchmark.grader))
 report.summarize(search, session.cfg)
 ```
+
+## The UI
+
+`uv run workflow-optimizer-ui` serves a page on `127.0.0.1:8770` that starts
+searches, watches them run, and compares what they found:
+
+- **New search** — pick a task from `config/task/`, set rounds / examples /
+  concurrency / budget, and start. Only those settings are accepted from the
+  form; everything else comes from config.
+- **Live progress** — phase pills (analyzing → designing round *i* → ranking →
+  done), candidates appearing with dev accuracy and cost as they are scored, and
+  the raw log including the design agent's own output. **Stop** kills the run and
+  the agent with it.
+- **Results** — an accuracy-vs-cost plot with the frontier drawn through it, a
+  candidate table with dev and test scores side by side, and each workflow's
+  source on click.
+
+Runs live in `runs/<run_id>/` — the resolved config, a status header, an
+append-only event log, the raw log, and the final result. The server holds no
+state of its own: it reads those files, and each search runs in its own
+subprocess. Restart the server mid-search and the page picks up where it was.
+
+It binds to localhost because starting a search spends real money — anything that
+can reach the port can spend it.
 
 ## Vocabulary
 
@@ -106,10 +131,13 @@ src/workflow_optimizer/
   optimizer.py          Candidate, Search — the round loop and the archive
   pareto.py             frontier + the two constrained picks
   report.py             frontier table, plot, search JSON
+  runstore.py           one run's state on disk: status, events, log, result
   cli.py                `workflow-optimizer`
+  dashboard/            the UI: stdlib server, runner subprocess, one static page
 notebooks/optimize.ipynb  the same pipeline, interactively
+runs/<run_id>/          per-run state the UI reads (gitignored)
 experiments/            benchmark comparisons (see routerllm_ifeval/)
-tests/test_offline.py   everything checkable without spending money
+tests/                  everything checkable without spending money
 ```
 
 ## Configuration
@@ -177,6 +205,8 @@ what it will mean in the final ranking.
 uv run pytest
 ```
 
-The API is faked, so the suite costs nothing and covers what is pure logic: pricing,
-grading, the answer contract, the Pareto helpers, the runtime's guardrails (sandbox,
-call budget, crash isolation), config overrides, and what the design agent is handed.
+The API is faked, so the suite costs nothing. `test_offline.py` covers the pipeline's
+pure logic — pricing, grading, the answer contract, the Pareto helpers, the runtime's
+guardrails (sandbox, call budget, crash isolation), config overrides, and what the
+design agent is handed. `test_dashboard.py` covers the UI's run store and what the
+server refuses to accept from the form.

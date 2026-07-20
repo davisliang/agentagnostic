@@ -57,7 +57,8 @@ class Search:
     finalists: list[Candidate] = field(default_factory=list)
 
 
-def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print) -> Search:
+def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
+             on_event=None) -> Search:
     """Design candidates, score them on dev, then rank the frontier on test.
 
     Args:
@@ -65,16 +66,21 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print) 
         benchmark: What is being optimized — task, grader, and the two splits.
         evaluator: Scores candidates. Built from `cfg` and the benchmark's grader
             if omitted.
-        log: Where progress goes.
+        log: Where progress goes, as human-readable lines.
+        on_event: Optional `on_event(dict)` called at each milestone —
+            "round_start", "candidate", "ranking", "test_scored". Where `log` is
+            prose for a terminal, these are structured for a UI to render.
 
     Returns:
         A Search. `finalists` is empty when no candidate survived.
     """
     evaluator = evaluator or Session.from_config(cfg).evaluator(benchmark.grader)
+    emit = on_event or (lambda event: None)
     search = Search()
 
     for round_num in range(1, cfg.designer.rounds + 1):
         log(f"\n===== design round {round_num} / {cfg.designer.rounds} =====")
+        emit({"event": "round_start", "round": round_num, "rounds": cfg.designer.rounds})
         context = designer.summarize_archive(search.archive)      # empty on round 1
         for program in designer.run_design_round(cfg, benchmark, round_num, context, log=log):
             if any(program["code"] == c.code for c in search.archive):   # skip exact repeats
@@ -87,17 +93,26 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print) 
             log(f"  + {candidate.name:24s} dev acc {candidate.dev.accuracy:.2f}  "
                 f"${candidate.dev.cost:.5f}/query  "
                 f"cached {candidate.dev.cached_input_frac:.0%}")
+            emit({"event": "candidate", "round": round_num, "name": candidate.name,
+                  "description": candidate.description,
+                  "dev_accuracy": candidate.dev.accuracy, "dev_cost": candidate.dev.cost,
+                  "cached_input_frac": candidate.dev.cached_input_frac,
+                  "errors": candidate.dev.errors[:3]})
 
     log(f"\n{len(search.archive)} workflows in the archive after {cfg.designer.rounds} rounds.")
     if not search.archive:
         return search
 
     log("scoring the dev frontier on the held-out test split...")
-    for candidate in pareto_front(search.archive, on=DEV):
+    frontier = pareto_front(search.archive, on=DEV)
+    emit({"event": "ranking", "n_finalists": len(frontier)})
+    for candidate in frontier:
         candidate.test = evaluator.run(candidate.program, benchmark.test)
         search.finalists.append(candidate)
         log(f"  {candidate.name:24s} test acc {candidate.test.accuracy:.2f}  "
             f"${candidate.test.cost:.5f}/query")
+        emit({"event": "test_scored", "name": candidate.name,
+              "test_accuracy": candidate.test.accuracy, "test_cost": candidate.test.cost})
     return search
 
 
