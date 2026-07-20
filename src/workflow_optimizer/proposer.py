@@ -44,7 +44,13 @@ async def main() -> None:
                 elif isinstance(block, ToolUseBlock):
                     print(f"  [tool] {block.name}", flush=True)
         elif isinstance(message, ResultMessage):
+            # The design agent bills through the SDK, not through our meter, so
+            # this is the only place its spend is observable. Printed in a fixed
+            # form because the caller reads it back off the log.
+            cost = message.total_cost_usd
             print(f"[agent finished: {message.subtype}]", flush=True)
+            if cost is not None:
+                print(f"[agent cost: ${cost:.4f} over {message.num_turns} turns]", flush=True)
 
 
 if __name__ == "__main__":

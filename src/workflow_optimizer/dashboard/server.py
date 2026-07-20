@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .. import runstore
+from .. import costs, runstore
 from ..config import load_config
 from ..paths import ROOT
 
@@ -193,6 +193,45 @@ def compare_runs() -> dict:
             "baselines": {task: runstore.baselines_for(task) for task in sorted(tasks)}}
 
 
+def estimate_cost(task: str, overrides: dict, freetext: bool = False,
+                  has_dataset: bool = False) -> dict:
+    """Estimate what the form's current settings would cost to run.
+
+    Args:
+        task: The selected task config name, or "" for a free-text task.
+        overrides: The form's settings, same keys as `start_run` accepts.
+        freetext: Whether this is a described-in-prose task.
+        has_dataset: Whether a dataset was uploaded, so none is generated.
+
+    Returns:
+        The Estimate as a dict, or `{"error": ...}` if the settings don't load —
+        the same rejections `start_run` would give, surfaced before spending.
+    """
+    dotlist = []
+    for key, raw in (overrides or {}).items():
+        if key not in FORM_FIELDS or raw in (None, ""):
+            continue
+        try:
+            dotlist.append(f"{key}={FORM_FIELDS[key](raw)}")
+        except (TypeError, ValueError):
+            return {"error": f"bad value for {key}: {raw!r}"}
+    if not freetext and task not in runstore.list_tasks():
+        return {"error": f"unknown task: {task}"}
+
+    try:
+        cfg = load_config("" if freetext else task, dotlist)
+    except Exception as error:
+        return {"error": f"config: {error}"}
+
+    history = costs.observed([runstore.read_events(s.run_id) for s in runstore.list_runs()])
+    generates = not (has_dataset or (not freetext and bool(cfg.task.dataset)))
+    guess = costs.estimate(cfg, history, generates_data=generates,
+                           judged=None if not freetext else False)
+    return {"low": guess.low, "expected": guess.expected, "high": guess.high,
+            "breakdown": guess.breakdown, "assumptions": guess.assumptions,
+            "based_on_runs": guess.based_on_runs}
+
+
 def run_detail(run_id: str, log_lines: int = 400) -> dict:
     """Assemble everything the detail pane shows for one run.
 
@@ -325,6 +364,15 @@ class Handler(BaseHTTPRequestHandler):
                                    "fields": sorted(FORM_FIELDS)})
             if path == "/api/compare":
                 return self._json(compare_runs())
+            if path == "/api/estimate":
+                params = parse_qs(urlparse(self.path).query)
+                overrides = {k: v[0] for k, v in params.items()
+                             if k in FORM_FIELDS and v and v[0] != ""}
+                return self._json(estimate_cost(
+                    (params.get("task") or [""])[0],
+                    overrides,
+                    freetext=(params.get("freetext") or ["0"])[0] == "1",
+                    has_dataset=(params.get("has_dataset") or ["0"])[0] == "1"))
             if path == "/api/runs":
                 return self._json({"runs": [_status_dict(s) for s in runstore.list_runs()]})
             if path.startswith("/api/trace/"):

@@ -87,7 +87,10 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
         log(f"\n===== design round {round_num} / {cfg.designer.rounds} =====")
         emit({"event": "round_start", "round": round_num, "rounds": cfg.designer.rounds})
         context = designer.summarize_archive(search.archive)      # empty on round 1
-        for program in designer.run_design_round(cfg, benchmark, round_num, context, log=log):
+        report_cost = lambda usd, turns: emit(
+            {"event": "agent_cost", "round": round_num, "usd": usd, "turns": turns})
+        for program in designer.run_design_round(cfg, benchmark, round_num, context,
+                                                 log=log, on_cost=report_cost):
             if any(program["code"] == c.code for c in search.archive):   # skip exact repeats
                 continue
             candidate = Candidate(name=_unique_name(program["name"], search.archive),

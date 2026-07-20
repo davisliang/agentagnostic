@@ -102,6 +102,15 @@
   form.newrun label { display:block; font-size:10px; color:#7c8699; text-transform:uppercase;
                       letter-spacing:.4px; margin-bottom:3px; }
   .note { color:#fbbf24; font-size:11px; margin-top:6px; }
+  .estimate { margin-top:10px; border-top:1px solid #2a313c; padding-top:8px; color:#8b95a7; font-size:11px; }
+  .estimate .big { font-size:18px; color:#86efac; font-weight:600; }
+  .estimate .rng { font-size:11px; color:#7c8699; font-weight:400; margin-left:6px; }
+  .estimate .lines { margin:6px 0; }
+  .estimate .ln { display:flex; justify-content:space-between; padding:1px 0;
+                  font-family:ui-monospace,Menlo,monospace; color:#bdc4d3; }
+  .estimate details { background:none; border:none; margin:4px 0 0; }
+  .estimate details > summary { padding:2px 0; color:#7dd3fc; font-size:11px; }
+  .estimate details .inner { padding:0; }
   .err { color:#fca5a5; font-size:12px; margin-top:6px; }
 </style>
 </head>
@@ -173,7 +182,7 @@ function newRunForm() {
       <span class="tab ${newMode === "benchmark" ? "on" : ""}" onclick="setNewMode('benchmark')">benchmark</span>
       <span class="tab ${newMode === "prompt" ? "on" : ""}" onclick="setNewMode('prompt')">describe a task</span>
     </div>
-    <form class="newrun" onsubmit="return startRun(event)">
+    <form class="newrun" onsubmit="return startRun(event)" oninput="scheduleEstimate()">
       <div class="full" id="f-source"></div>
       <div><label>design rounds</label><input id="f-rounds" type="number" min="1" max="10" value="2"></div>
       <div><label>examples</label><input id="f-examples" type="number" min="2" max="500" value="40"></div>
@@ -181,7 +190,7 @@ function newRunForm() {
       <div><label>budget $/query</label><input id="f-budget" type="number" step="0.0001" value="0.002"></div>
       <div class="full"><button class="primary" type="submit" id="f-go">start search</button></div>
     </form>
-    <div class="note">This spends real API money — the design agent plus every candidate evaluation.</div>
+    <div id="f-cost" class="estimate">estimating…</div>
     <div class="err" id="f-err"></div>
   </div>`;
 }
@@ -207,7 +216,7 @@ function benchmarkPicker() {
   }).join("");
   const unsupported = benchmarks.filter(b => !b.supported);
   return `<label>task or benchmark</label>
-    <select id="f-task" onchange="describeTask()">${options}</select>
+    <select id="f-task" onchange="describeTask();scheduleEstimate()">${options}</select>
     <div class="desc" id="f-desc"></div>` +
     (unsupported.length ? `<div class="note">not runnable here: ` +
       unsupported.map(b => `${esc(b.name)} (${esc(b.note)})`).join("; ") + `</div>` : "");
@@ -238,7 +247,55 @@ function promptFields() {
       <code>question</code> and <code>answer</code>. Leave empty and examples are generated.</div>`;
 }
 
-function setNewMode(mode) { newMode = mode; uploaded = null; document.getElementById("newslot").innerHTML = newRunForm(); fillTasks(); }
+function setNewMode(mode) {
+  newMode = mode; uploaded = null;
+  document.getElementById("newslot").innerHTML = newRunForm();
+  fillTasks(); scheduleEstimate();
+}
+
+// ---- what this will cost, before committing to it ---------------------------
+// Debounced: every keystroke in the form would otherwise re-request it.
+let estimateTimer = null;
+function scheduleEstimate() {
+  clearTimeout(estimateTimer);
+  estimateTimer = setTimeout(loadEstimate, 250);
+}
+
+async function loadEstimate() {
+  const box = document.getElementById("f-cost");
+  if (!box) return;
+  const params = new URLSearchParams();
+  if (newMode === "benchmark") {
+    const sel = document.getElementById("f-task");
+    params.set("task", sel ? sel.value : "");
+  } else {
+    params.set("freetext", "1");
+    params.set("has_dataset", uploaded ? "1" : "0");
+  }
+  for (const [id, key] of [["f-rounds", "designer.rounds"], ["f-examples", "data.n_examples"],
+                           ["f-concurrency", "runtime.concurrency"],
+                           ["f-budget", "report.max_cost_per_query"]]) {
+    const el = document.getElementById(id);
+    if (el && el.value !== "") params.set(key, el.value);
+  }
+  const e = await (await fetch("/api/estimate?" + params)).json();
+  if (e.error) { box.innerHTML = `<span class="err">${esc(e.error)}</span>`; return; }
+
+  const rows = Object.entries(e.breakdown)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<div class="ln"><span>${esc(k)}</span><span>$${v.toFixed(2)}</span></div>`)
+    .join("");
+  box.innerHTML = `
+    <div class="big">≈ $${e.expected.toFixed(2)}
+      <span class="rng">$${e.low.toFixed(2)} – $${e.high.toFixed(2)}</span></div>
+    <div class="lines">${rows}</div>
+    <details><summary>what this assumes${e.based_on_runs
+        ? ` · ${e.based_on_runs} past run(s) measured` : " · nothing measured yet"}</summary>
+      <div class="inner"><ul style="margin:6px 0 0 14px;padding:0;color:#8b95a7">` +
+      e.assumptions.map(a => `<li>${esc(a)}</li>`).join("") + `</ul></div></details>
+    <div class="note">A real estimate, not a cap. The design agent is the least
+      predictable part; the range is wide on purpose.</div>`;
+}
 
 function readUpload(ev) {
   const file = ev.target.files && ev.target.files[0];
@@ -258,7 +315,7 @@ function toggleNew() {
   showNew = !showNew;
   document.getElementById("newslot").innerHTML = showNew ? newRunForm() : "";
   document.getElementById("newbtn").textContent = showNew ? "− cancel" : "+ new search";
-  if (showNew) fillTasks();
+  if (showNew) { fillTasks(); scheduleEstimate(); }
 }
 
 async function startRun(ev) {

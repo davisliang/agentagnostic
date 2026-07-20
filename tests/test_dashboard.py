@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from workflow_optimizer import runstore
+from workflow_optimizer import costs, runstore
 from workflow_optimizer.config import load_config, load_resolved
 from workflow_optimizer.dashboard import server
 
@@ -278,3 +278,57 @@ def test_compare_puts_every_run_on_the_same_axes(a_run):
     assert point["run_id"] == a_run.run_id and point["task"] == "gsm8k"
     assert point["split"] == "test"            # test scores win where they exist
     assert point["accuracy"] == 0.7
+
+
+# ---- estimating a run before paying for it ----------------------------------
+def test_an_estimate_says_which_figures_were_measured(runs_dir):
+    result = server.estimate_cost("gsm8k", {"designer.rounds": "2", "data.n_examples": "40"})
+    assert result["expected"] > 0
+    assert result["low"] < result["expected"] < result["high"]
+    assert "design agent" in result["breakdown"]
+    # with no history every figure must be labelled a default, not passed off as known
+    assert result["based_on_runs"] == 0
+    assert all("measured" not in a for a in result["assumptions"] if "past run" in a)
+
+
+def test_past_runs_replace_the_defaults(a_run):
+    for round_num in (1, 2):
+        runstore.append_event(a_run.run_id, {"event": "round_start", "round": round_num,
+                                             "rounds": 2})
+        runstore.append_event(a_run.run_id, {"event": "agent_cost", "round": round_num,
+                                             "usd": 0.40, "turns": 20})
+        runstore.append_event(a_run.run_id, {
+            "event": "candidate", "round": round_num, "name": f"H{round_num}",
+            "description": "", "dev_accuracy": 0.5, "dev_cost": 0.002,
+            "cached_input_frac": 0.0, "errors": []})
+
+    history = costs.observed([runstore.read_events(a_run.run_id)])
+    assert history["agent_cost_per_round"] == pytest.approx(0.40)
+    assert history["cost_per_query"] == pytest.approx(0.002)
+    assert history["candidates_per_round"] == pytest.approx(1.0)
+
+    result = server.estimate_cost("gsm8k", {"designer.rounds": "2"})
+    assert result["based_on_runs"] == 1
+    assert any("measured" in a for a in result["assumptions"])
+    # the measured agent cost is used, not the much larger default
+    assert result["breakdown"]["design agent"] == pytest.approx(0.80)
+
+
+def test_more_rounds_and_examples_cost_more(runs_dir):
+    small = server.estimate_cost("gsm8k", {"designer.rounds": "1", "data.n_examples": "20"})
+    big = server.estimate_cost("gsm8k", {"designer.rounds": "4", "data.n_examples": "200"})
+    assert big["expected"] > small["expected"] * 3
+
+
+def test_a_supplied_dataset_removes_the_generation_cost(runs_dir):
+    generated = server.estimate_cost("", {"data.n_examples": "100"}, freetext=True)
+    uploaded = server.estimate_cost("", {"data.n_examples": "100"}, freetext=True,
+                                    has_dataset=True)
+    assert "generate examples" in generated["breakdown"]
+    assert "generate examples" not in uploaded["breakdown"]
+    assert uploaded["expected"] < generated["expected"]
+
+
+def test_an_estimate_refuses_the_same_things_a_run_would(runs_dir):
+    assert "unknown task" in server.estimate_cost("../etc/passwd", {})["error"]
+    assert "bad value" in server.estimate_cost("gsm8k", {"designer.rounds": "; rm -rf /"})["error"]

@@ -12,6 +12,7 @@ is immune.
 """
 import json
 import os
+import re
 import pathlib
 import shutil
 import subprocess
@@ -49,7 +50,11 @@ def summarize_archive(candidates: list) -> str:
     return "\n".join(lines)
 
 
-def run_design_round(cfg, benchmark, round_num: int, context: str, log=print) -> list[dict]:
+AGENT_COST = re.compile(r"\[agent cost: \$([0-9.]+) over (\d+) turns\]")
+
+
+def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
+                     on_cost=None) -> list[dict]:
     """Run one design round and collect the workflows it proposed.
 
     Stages a scratch directory, runs the agent there as a subprocess, and streams
@@ -63,6 +68,9 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print) ->
             later rounds ask for cheaper workflows that hold accuracy.
         context: `summarize_archive(...)` output. Ignored on round 1.
         log: Where the agent's output goes, line by line.
+        on_cost: Optional `on_cost(usd, turns)`, called with what the agent spent
+            on itself. That spend goes through the SDK rather than our meter, so
+            this is the only place it can be seen.
 
     Returns:
         The proposed programs as `{"name", "description", "code"}` dicts. Possibly
@@ -88,7 +96,11 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print) ->
         cwd=agent_dir, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
     for line in process.stdout:
-        log(line.rstrip())
+        line = line.rstrip()
+        log(line)
+        found = AGENT_COST.search(line)
+        if found and on_cost:
+            on_cost(float(found.group(1)), int(found.group(2)))
     process.wait()
 
     return _collect_programs(agent_dir)
