@@ -10,7 +10,7 @@ import sys
 import pytest
 
 from workflow_optimizer import runstore
-from workflow_optimizer.config import load_config
+from workflow_optimizer.config import load_config, load_resolved
 from workflow_optimizer.dashboard import server
 
 
@@ -190,3 +190,91 @@ def test_a_zombie_process_does_not_count_as_running(a_run):
     os.kill(child.pid, 0)               # the zombie is still signallable...
     runstore.update_status(a_run.run_id, pid=child.pid)
     assert runstore.list_runs()[0].state == "failed"   # ...but it is not running
+
+
+# ---- free-text tasks and uploaded datasets ----------------------------------
+def test_an_uploaded_jsonl_is_read(runs_dir):
+    text = '{"question": "a", "answer": "1"}\n{"question": "b", "answer": "2"}\n'
+    examples, reason = server.parse_dataset(text)
+    assert reason == ""
+    assert [e["question"] for e in examples] == ["a", "b"]
+
+
+def test_a_json_array_and_alternate_key_names_are_read(runs_dir):
+    # exports around here spell the gold "target" or "gold", and the input "prompt"
+    text = '[{"prompt": "a", "target": "1"}, {"input": "b", "gold": "2"}]'
+    examples, reason = server.parse_dataset(text)
+    assert reason == "" and len(examples) == 2
+    assert examples[0]["answer"] == "1" and examples[1]["question"] == "b"
+
+
+def test_extra_columns_survive_for_a_custom_grader(runs_dir):
+    text = '{"question": "a", "answer": "1", "doc": {"k": 2}}\n{"question": "b", "answer": "2"}\n'
+    examples, _ = server.parse_dataset(text)
+    assert examples[0]["doc"] == {"k": 2}
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("", "empty"),
+    ("not json", "not valid JSON"),
+    ('{"question": "a"}\n{"question": "b", "answer": "x"}', "needs a question and an answer"),
+    ('{"question": "a", "answer": "1"}', "at least 2 examples"),
+])
+def test_a_bad_dataset_is_refused_with_a_reason(runs_dir, text, expected):
+    examples, reason = server.parse_dataset(text)
+    assert examples == [] and expected in reason
+
+
+def test_a_freetext_task_needs_no_task_file(runs_dir, monkeypatch):
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **k: type("P", (), {"pid": 4242})())
+    result = server.start_run("", {}, prompt="Classify sentiment as positive or negative.")
+    assert result["ok"] is True
+    cfg = load_resolved(runstore.run_dir(result["run_id"]) / "config.yaml")
+    assert cfg.task.name == "custom"
+    assert "Classify sentiment" in cfg.task.seed_prompt
+
+
+def test_an_uploaded_dataset_lands_in_the_run_and_is_pointed_at(runs_dir, monkeypatch):
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **k: type("P", (), {"pid": 4242})())
+    result = server.start_run("", {}, prompt="Label it.",
+                              dataset_text='{"question": "a", "answer": "1"}\n'
+                                           '{"question": "b", "answer": "2"}\n')
+    assert result["ok"] is True
+    directory = runstore.run_dir(result["run_id"])
+    assert (directory / "dataset.jsonl").exists()
+    cfg = load_resolved(directory / "config.yaml")
+    assert cfg.task.dataset == str(directory / "dataset.jsonl")
+
+
+def test_a_freetext_run_still_rejects_unlisted_settings(runs_dir):
+    result = server.start_run("", {"task.grader": "/etc/passwd"}, prompt="Label it.")
+    assert result["ok"] is False and "unknown setting" in result["error"]
+
+
+# ---- benchmarks and the comparison view -------------------------------------
+def test_benchmarks_are_listed_with_their_metadata():
+    found = {b["name"]: b for b in runstore.list_benchmarks()}
+    if not found:
+        pytest.skip("benchmarks/ not imported in this checkout")
+    assert "ifeval" in found and "arc_agi_2" in found
+    assert found["ifeval"]["baselines"]["haiku"] == pytest.approx(0.8478, abs=1e-4)
+    # the code tasks cannot be graded here, and say so rather than scoring wrongly
+    for name in ("humaneval_plus_gen", "mbpp_plus"):
+        if name in found:
+            assert found[name]["supported"] is False and found[name]["note"]
+
+
+def test_compare_puts_every_run_on_the_same_axes(a_run):
+    runstore.append_event(a_run.run_id, {
+        "event": "candidate", "round": 1, "name": "H", "description": "one call",
+        "dev_accuracy": 0.8, "dev_cost": 0.001, "cached_input_frac": 0.0, "errors": []})
+    runstore.append_event(a_run.run_id, {
+        "event": "test_scored", "name": "H", "test_accuracy": 0.7, "test_cost": 0.0012})
+
+    compared = server.compare_runs()
+    point = compared["points"][0]
+    assert point["run_id"] == a_run.run_id and point["task"] == "gsm8k"
+    assert point["split"] == "test"            # test scores win where they exist
+    assert point["accuracy"] == 0.7

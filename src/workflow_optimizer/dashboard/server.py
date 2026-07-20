@@ -42,21 +42,72 @@ FORM_FIELDS = {
 }
 
 
-def start_run(task: str, overrides: dict) -> dict:
+def parse_dataset(text: str) -> tuple[list, str]:
+    """Read an uploaded dataset into examples.
+
+    Accepts JSONL or a JSON array, with the answer under "answer", "target" or
+    "gold" — the three spellings the exports around here use.
+
+    Args:
+        text: The uploaded file's contents.
+
+    Returns:
+        `(examples, "")` on success, or `([], reason)` if it can't be read.
+    """
+    text = (text or "").strip()
+    if not text:
+        return [], "the dataset is empty"
+
+    rows = []
+    if text.startswith("["):
+        try:
+            rows = json.loads(text)
+        except json.JSONDecodeError as error:
+            return [], f"not valid JSON: {error}"
+    else:
+        for number, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as error:
+                return [], f"line {number} is not valid JSON: {error}"
+
+    examples = []
+    for number, row in enumerate(rows, 1):
+        if not isinstance(row, dict):
+            return [], f"row {number} is not an object"
+        question = row.get("question") or row.get("input") or row.get("prompt")
+        answer = row.get("answer", row.get("target", row.get("gold")))
+        if question is None or answer is None:
+            return [], (f"row {number} needs a question and an answer — saw keys "
+                        f"{sorted(row)[:6]}")
+        examples.append({**row, "question": str(question), "answer": answer})
+
+    if len(examples) < 2:
+        return [], "at least 2 examples are needed, to split dev from test"
+    return examples, ""
+
+
+def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = "") -> dict:
     """Create a run directory and launch the pipeline against it.
 
     Args:
         task: A task config name. Must be one of `runstore.list_tasks()` — it
             names a file path, so an unknown value is rejected rather than
-            resolved.
+            resolved. Ignored when `prompt` is given.
         overrides: Config overrides keyed by dotted path. Only keys in
             FORM_FIELDS are accepted, each coerced to that field's type.
+        prompt: A free-text task description. Starts an ad-hoc search instead of
+            using a task file; the analyzer infers the grading rule from it.
+        dataset_text: An uploaded JSONL or JSON array of examples. Optional — a
+            free-text task with no data generates its own.
 
     Returns:
-        `{"ok": True, "run_id": ...}`, or `{"ok": False, "error": ...}` if the
-        task is unknown, an override is invalid, or the config fails to load.
+        `{"ok": True, "run_id": ...}`, or `{"ok": False, "error": ...}`.
     """
-    if task not in runstore.list_tasks():
+    freetext = bool(prompt and prompt.strip())
+    if not freetext and task not in runstore.list_tasks():
         return {"ok": False, "error": f"unknown task: {task}"}
 
     dotlist = []
@@ -70,12 +121,30 @@ def start_run(task: str, overrides: dict) -> dict:
         except (TypeError, ValueError):
             return {"ok": False, "error": f"bad value for {key}: {raw!r}"}
 
+    examples = []
+    if dataset_text:
+        examples, reason = parse_dataset(dataset_text)
+        if reason:
+            return {"ok": False, "error": f"dataset: {reason}"}
+
     try:
-        cfg = load_config(task, dotlist)
+        if freetext:
+            # Nothing from the form names a file: the task is built in memory,
+            # and any uploaded data is written inside the run's own directory.
+            cfg = load_config("", dotlist)
+            cfg.task.name = "custom"
+            cfg.task.seed_prompt = prompt.strip()
+        else:
+            cfg = load_config(task, dotlist)
     except Exception as error:
         return {"ok": False, "error": f"config: {error}"}
 
-    status = runstore.create_run(task, cfg)
+    status = runstore.create_run(cfg.task.name, cfg)
+    if examples:
+        data_file = runstore.run_dir(status.run_id) / "dataset.jsonl"
+        data_file.write_text("".join(json.dumps(e) + "\n" for e in examples))
+        cfg.task.dataset = str(data_file)
+        runstore.write_config(status.run_id, cfg)
     process = subprocess.Popen(
         [sys.executable, "-u", "-m", "workflow_optimizer.dashboard.runner", status.run_id],
         cwd=ROOT,
@@ -85,6 +154,43 @@ def start_run(task: str, overrides: dict) -> dict:
     )
     runstore.update_status(status.run_id, pid=process.pid)
     return {"ok": True, "run_id": status.run_id}
+
+
+def compare_runs() -> dict:
+    """Gather every scored candidate across every run, for the comparison chart.
+
+    One point per candidate per run, so searches on the same benchmark — or on
+    different ones — can be read on the same accuracy/cost axes.
+
+    Returns:
+        `{"points": [...], "baselines": {task: {...}}}`. Each point carries the
+        run it came from, its task, the split its numbers are from, accuracy,
+        cost, whether it was on that run's frontier, and its description.
+    """
+    points, tasks = [], set()
+    for status in runstore.list_runs():
+        detail_events = runstore.read_events(status.run_id)
+        result = runstore.read_result(status.run_id) or {}
+        frontier = set(result.get("frontier", []))
+        seen = {}
+        for event in detail_events:
+            if event.get("event") == "candidate":
+                seen[event["name"]] = {"dev": (event["dev_accuracy"], event["dev_cost"]),
+                                       "description": event.get("description", "")}
+            elif event.get("event") == "test_scored" and event["name"] in seen:
+                seen[event["name"]]["test"] = (event["test_accuracy"], event["test_cost"])
+        for name, entry in seen.items():
+            split = "test" if "test" in entry else "dev"
+            accuracy, cost = entry.get("test") or entry["dev"]
+            points.append({"run_id": status.run_id, "task": status.task, "name": name,
+                           "split": split, "accuracy": accuracy, "cost": cost,
+                           "frontier": name in frontier,
+                           "description": entry.get("description", "")})
+        if seen:
+            tasks.add(status.task)
+
+    return {"points": points,
+            "baselines": {task: runstore.baselines_for(task) for task in sorted(tasks)}}
 
 
 def run_detail(run_id: str, log_lines: int = 400) -> dict:
@@ -215,7 +321,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._html(STATIC_INDEX.read_text(encoding="utf-8"))
             if path == "/api/tasks":
                 return self._json({"tasks": runstore.list_tasks(),
+                                   "benchmarks": runstore.list_benchmarks(),
                                    "fields": sorted(FORM_FIELDS)})
+            if path == "/api/compare":
+                return self._json(compare_runs())
             if path == "/api/runs":
                 return self._json({"runs": [_status_dict(s) for s in runstore.list_runs()]})
             if path.startswith("/api/trace/"):
@@ -248,7 +357,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/runs":
                 body = self._body()
-                result = start_run(body.get("task", ""), body.get("overrides", {}))
+                result = start_run(body.get("task", ""), body.get("overrides", {}),
+                                   prompt=body.get("prompt", ""),
+                                   dataset_text=body.get("dataset", ""))
                 return self._json(result, code=200 if result.get("ok") else 400)
             if path.startswith("/api/run/") and path.endswith("/stop"):
                 run_id = path[len("/api/run/"):-len("/stop")]

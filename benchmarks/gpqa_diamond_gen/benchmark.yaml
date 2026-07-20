@@ -1,0 +1,19 @@
+# gpqa_diamond_gen — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: gpqa_diamond_gen
+description: >-
+  Answer a GPQA Diamond graduate-level science multiple-choice question. Answer with the option letter in parentheses, e.g. (C).
+source_dataset: Idavidrein/gpqa
+num_fewshot: 0
+examples: 198
+sampled_from: 198
+routerllm_grader: exact
+grading_supported: true
+check_type: exact
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 25
+  haiku: 0.76
+  opus: 0.96
+  router: 0.96
+  oracle: 0.96

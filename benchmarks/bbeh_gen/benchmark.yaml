@@ -1,0 +1,19 @@
+# bbeh_gen — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: bbeh_gen
+description: >-
+  Answer a BIG-Bench Extra Hard reasoning question. The answer is a short exact string — a word, number, or label — matched exactly.
+source_dataset: jgyasu/bbeh
+num_fewshot: 0
+examples: 200
+sampled_from: 4520   # random.Random(0).sample
+routerllm_grader: exact
+grading_supported: true
+check_type: exact
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 417
+  haiku: 0.2926
+  opus: 0.4508
+  router: 0.4412
+  oracle: 0.482

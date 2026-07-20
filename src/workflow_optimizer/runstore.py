@@ -149,6 +149,16 @@ def create_run(task: str, cfg) -> RunStatus:
     return status
 
 
+def write_config(run_id: str, cfg) -> None:
+    """Write (or replace) the resolved config a run will use.
+
+    Args:
+        run_id: The run to write for.
+        cfg: The resolved config.
+    """
+    (run_dir(run_id) / "config.yaml").write_text(OmegaConf.to_yaml(cfg))
+
+
 def write_status(status: RunStatus) -> None:
     """Persist a run's status, replacing what was there.
 
@@ -444,3 +454,52 @@ def _process_alive(pid: Optional[int]) -> bool:
     except (ProcessLookupError, PermissionError, OSError):
         return False
     return True
+
+
+BENCHMARKS_DIR = ROOT / "benchmarks"
+
+
+def list_benchmarks() -> list[dict]:
+    """Describe the benchmarks under `benchmarks/`, for the UI's task picker.
+
+    Returns:
+        One dict per benchmark folder, newest-agnostic and sorted by name, each
+        with its name, description, example count, whether grading is supported
+        here, and routerllm's reference accuracies when known. Empty if the
+        folder doesn't exist.
+    """
+    if not BENCHMARKS_DIR.exists():
+        return []
+    found = []
+    for folder in sorted(BENCHMARKS_DIR.iterdir()):
+        meta_file = folder / "benchmark.yaml"
+        if not folder.is_dir() or not meta_file.exists():
+            continue
+        meta = OmegaConf.to_container(OmegaConf.load(meta_file), resolve=True)
+        found.append({
+            "name": meta.get("name", folder.name),
+            "description": meta.get("description", ""),
+            "examples": meta.get("examples"),
+            "sampled_from": meta.get("sampled_from"),
+            "grader": meta.get("routerllm_grader", ""),
+            "supported": bool(meta.get("grading_supported", True)),
+            "note": meta.get("grading_note", ""),
+            "baselines": meta.get("baselines") or {},
+        })
+    return found
+
+
+def baselines_for(task: str) -> dict:
+    """Reference accuracies for one task, if it came from a benchmark.
+
+    Args:
+        task: A task name, e.g. "ifeval".
+
+    Returns:
+        `{"haiku", "opus", "router", "oracle", "n"}`, or {} when the task has no
+        recorded baselines.
+    """
+    for benchmark in list_benchmarks():
+        if benchmark["name"] == task:
+            return benchmark["baselines"]
+    return {}

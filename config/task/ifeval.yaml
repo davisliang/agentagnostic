@@ -19,8 +19,10 @@ task:
   answer_examples:
     - '"The fire consumed my hatred."'
     - the answer in all lowercase
-  # built by experiments/routerllm_ifeval/build_data.py; not committed
-  dataset: experiments/routerllm_ifeval/ifeval_train.jsonl
+  # The committed 200-example sample. For numbers directly comparable to
+  # routerllm's recorded baselines, use experiments/routerllm_ifeval/ instead —
+  # it runs the exact 100-train / 46-holdout slices (build_data.py builds them).
+  dataset: benchmarks/ifeval/data.jsonl
   grader: experiments/routerllm_ifeval/grader.py
 
 # Tighter than the default: caps a pathological candidate at cents, not dollars,

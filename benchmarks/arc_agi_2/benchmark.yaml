@@ -1,0 +1,12 @@
+# arc_agi_2 — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: arc_agi_2
+description: >-
+  Solve an ARC-AGI-2 puzzle. The prompt shows example input/output grids of digits; infer the transformation and produce the output grid for the final input. Answer with the grid as rows of space-separated digits.
+source_dataset: json
+num_fewshot: 0
+examples: 100
+sampled_from: 100
+routerllm_grader: grid
+grading_supported: true
+check_type: exact
+grader: benchmarks/_graders/grid.py

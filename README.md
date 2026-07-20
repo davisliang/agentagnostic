@@ -30,9 +30,11 @@ report.summarize(search, session.cfg)
 `uv run workflow-optimizer-ui` serves a page on `127.0.0.1:8770` that starts
 searches, watches them run, and compares what they found:
 
-- **New search** — pick a task from `config/task/`, set rounds / examples /
-  concurrency / budget, and start. Only those settings are accepted from the
-  form; everything else comes from config.
+- **New search** — either pick a **benchmark** (the 14 routerllm holdout tasks
+  plus ARC-AGI-2, with their example counts, graders and recorded baselines), or
+  **describe a task** in free text and optionally upload your own `.jsonl`.
+  Upload nothing and the examples are generated. Only the listed settings are
+  accepted from the form; everything else comes from config.
 - **Live progress** — phase pills (analyzing → designing round *i* → ranking →
   done), candidates appearing with dev accuracy and cost as they are scored, and
   the raw log including the design agent's own output. **Stop** kills the run and
@@ -49,6 +51,10 @@ searches, watches them run, and compares what they found:
 - **The rest of the run** — the grading rule and judge rubric, the answer format
   shown to the designer, sample dev and test examples, the resolved config, a
   timeline of milestones, and the full log.
+- **Compare** — every candidate from every run on one accuracy-vs-cost chart
+  (log cost axis), coloured by task, hover any point for its name, task, scores
+  and description, click to jump to it. Filter to one task and routerllm's
+  haiku / opus / router / oracle accuracies are drawn as reference lines.
 
 Runs live in `runs/<run_id>/` — the resolved config, a status header, an
 append-only event log, the raw log, per-candidate call traces, and the result.
@@ -58,6 +64,36 @@ it was.
 
 It binds to localhost because starting a search spends real money — anything that
 can reach the port can spend it.
+
+## Benchmarks
+
+`benchmarks/<name>/` is a self-contained task: `benchmark.yaml` (what it is, how
+it grades, routerllm's baselines) plus `data.jsonl` of `{"question", "answer"}`.
+`config/task/<name>.yaml` is generated alongside, so each is usable as
+`--task <name>` or from the UI.
+
+The 14 routerllm holdout tasks and ARC-AGI-2 are imported by:
+
+```sh
+uv run python scripts/import_routerllm_benchmarks.py          # --limit 200 by default
+```
+
+Large sets are sampled deterministically (`random.Random(0).sample`) and the
+yaml records `sampled_from`, so the sampling is never silent. Baselines are
+**recomputed** from routerllm's `joined_14.jsonl` rather than copied, which is
+checkable: the import reproduces ifeval's known 0.848 / 0.891 / 0.848 / 0.957.
+
+Grading is mapped onto ours where it can be: `exact` → exact match, `contains` →
+`benchmarks/_graders/contains.py`, `grid` → `benchmarks/_graders/grid.py` (both
+ported from routerllm so a score means the same thing), `judge` → our LLM judge.
+
+Three tasks are graded natively by machinery that needs more than a prompt and
+an answer. `ifeval` works through the existing checker in `experiments/`.
+`humaneval_plus_gen` and `mbpp_plus` need a sandboxed test harness we don't have,
+so they are imported as a small reference sample with
+`grading_supported: false` and are not offered as runnable tasks. **A `judge`
+task's numbers are not comparable to the recorded baselines** — routerllm judges
+with its own prompts, we use ours; `grading_note` says so per benchmark.
 
 ## Vocabulary
 

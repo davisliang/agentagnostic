@@ -1,0 +1,19 @@
+# mbpp_plus — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: mbpp_plus
+description: >-
+  Write a Python function that passes the MBPP+ test suite for the given task.
+source_dataset: evalplus/mbppplus
+num_fewshot: 3
+examples: 20
+sampled_from: 200   # random.Random(0).sample
+routerllm_grader: native
+grading_supported: false
+grading_note: pass@1 by executing tests — no sandboxed harness here
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 24
+  haiku: 0.9583
+  opus: 0.9583
+  router: 1.0
+  oracle: 1.0

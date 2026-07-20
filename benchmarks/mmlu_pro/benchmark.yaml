@@ -1,0 +1,19 @@
+# mmlu_pro — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: mmlu_pro
+description: >-
+  Answer an MMLU-Pro multiple-choice question across academic and professional subjects. Answer with the option letter alone, e.g. I.
+source_dataset: TIGER-Lab/MMLU-Pro
+num_fewshot: 5
+examples: 200
+sampled_from: 2800   # random.Random(0).sample
+routerllm_grader: exact
+grading_supported: true
+check_type: exact
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 1223
+  haiku: 0.7596
+  opus: 0.8749
+  router: 0.8299
+  oracle: 0.8994
