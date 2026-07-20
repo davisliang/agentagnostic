@@ -1,0 +1,19 @@
+# minerva_math — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: minerva_math
+description: >-
+  Solve a MATH competition problem. The answer is a mathematical expression or number, compared for mathematical equivalence.
+source_dataset: EleutherAI/hendrycks_math
+num_fewshot: 4
+examples: 200
+sampled_from: 1400   # random.Random(0).sample
+routerllm_grader: exact
+grading_supported: true
+check_type: exact
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 516
+  haiku: 0.4341
+  opus: 0.6047
+  router: 0.6066
+  oracle: 0.6163

@@ -8,7 +8,8 @@ hands you the accuracy/cost **Pareto frontier** to pick from.
 ```sh
 export ANTHROPIC_API_KEY=...
 uv sync
-uv run workflow-optimizer --task gsm8k                     # a file under config/task/
+uv run workflow-optimizer-ui --open                        # the UI, at :8770
+uv run workflow-optimizer --task gsm8k                     # or headless
 uv run workflow-optimizer --task gsm8k designer.rounds=1   # override any config key
 ```
 
@@ -23,6 +24,76 @@ benchmark = analysis.build_benchmark(session.cfg, session.client)
 search = optimize(session.cfg, benchmark, session.evaluator(benchmark.grader))
 report.summarize(search, session.cfg)
 ```
+
+## The UI
+
+`uv run workflow-optimizer-ui` serves a page on `127.0.0.1:8770` that starts
+searches, watches them run, and compares what they found:
+
+- **New search** — either pick a **benchmark** (the 14 routerllm holdout tasks
+  plus ARC-AGI-2, with their example counts, graders and recorded baselines), or
+  **describe a task** in free text and optionally upload your own `.jsonl`.
+  Upload nothing and the examples are generated. Only the listed settings are
+  accepted from the form; everything else comes from config.
+- **Live progress** — phase pills (analyzing → designing round *i* → ranking →
+  done), candidates appearing with dev accuracy and cost as they are scored, and
+  the raw log including the design agent's own output. **Stop** kills the run and
+  the agent with it.
+- **Results** — an accuracy-vs-cost plot with the frontier drawn through it, a
+  candidate table with dev and test scores side by side, and each workflow's
+  source on click.
+- **Every input and output** — pick a candidate, then **dev calls** / **test
+  calls**: per example, its score, what the workflow returned, the gold answer,
+  and each model call in order with the full prompt sent, the reply received, the
+  model, the cost and the token split. This is how you tell "the strategy is
+  wrong" from "the model got that one wrong". Prompts and replies over 8k chars
+  are clipped, with the full length shown.
+- **The rest of the run** — the grading rule and judge rubric, the answer format
+  shown to the designer, sample dev and test examples, the resolved config, a
+  timeline of milestones, and the full log.
+- **Compare** — every candidate from every run on one accuracy-vs-cost chart
+  (log cost axis), coloured by task, hover any point for its name, task, scores
+  and description, click to jump to it. Filter to one task and routerllm's
+  haiku / opus / router / oracle accuracies are drawn as reference lines.
+
+Runs live in `runs/<run_id>/` — the resolved config, a status header, an
+append-only event log, the raw log, per-candidate call traces, and the result.
+The server holds no state of its own: it reads those files, and each search runs
+in its own subprocess. Restart the server mid-search and the page picks up where
+it was.
+
+It binds to localhost because starting a search spends real money — anything that
+can reach the port can spend it.
+
+## Benchmarks
+
+`benchmarks/<name>/` is a self-contained task: `benchmark.yaml` (what it is, how
+it grades, routerllm's baselines) plus `data.jsonl` of `{"question", "answer"}`.
+`config/task/<name>.yaml` is generated alongside, so each is usable as
+`--task <name>` or from the UI.
+
+The 14 routerllm holdout tasks and ARC-AGI-2 are imported by:
+
+```sh
+uv run python scripts/import_routerllm_benchmarks.py          # --limit 200 by default
+```
+
+Large sets are sampled deterministically (`random.Random(0).sample`) and the
+yaml records `sampled_from`, so the sampling is never silent. Baselines are
+**recomputed** from routerllm's `joined_14.jsonl` rather than copied, which is
+checkable: the import reproduces ifeval's known 0.848 / 0.891 / 0.848 / 0.957.
+
+Grading is mapped onto ours where it can be: `exact` → exact match, `contains` →
+`benchmarks/_graders/contains.py`, `grid` → `benchmarks/_graders/grid.py` (both
+ported from routerllm so a score means the same thing), `judge` → our LLM judge.
+
+Three tasks are graded natively by machinery that needs more than a prompt and
+an answer. `ifeval` works through the existing checker in `experiments/`.
+`humaneval_plus_gen` and `mbpp_plus` need a sandboxed test harness we don't have,
+so they are imported as a small reference sample with
+`grading_supported: false` and are not offered as runnable tasks. **A `judge`
+task's numbers are not comparable to the recorded baselines** — routerllm judges
+with its own prompts, we use ours; `grading_note` says so per benchmark.
 
 ## Vocabulary
 
@@ -106,10 +177,13 @@ src/workflow_optimizer/
   optimizer.py          Candidate, Search — the round loop and the archive
   pareto.py             frontier + the two constrained picks
   report.py             frontier table, plot, search JSON
+  runstore.py           one run's state on disk: status, events, log, result
   cli.py                `workflow-optimizer`
+  dashboard/            the UI: stdlib server, runner subprocess, one static page
 notebooks/optimize.ipynb  the same pipeline, interactively
+runs/<run_id>/          per-run state the UI reads (gitignored)
 experiments/            benchmark comparisons (see routerllm_ifeval/)
-tests/test_offline.py   everything checkable without spending money
+tests/                  everything checkable without spending money
 ```
 
 ## Configuration
@@ -177,6 +251,8 @@ what it will mean in the final ranking.
 uv run pytest
 ```
 
-The API is faked, so the suite costs nothing and covers what is pure logic: pricing,
-grading, the answer contract, the Pareto helpers, the runtime's guardrails (sandbox,
-call budget, crash isolation), config overrides, and what the design agent is handed.
+The API is faked, so the suite costs nothing. `test_offline.py` covers the pipeline's
+pure logic — pricing, grading, the answer contract, the Pareto helpers, the runtime's
+guardrails (sandbox, call budget, crash isolation), config overrides, and what the
+design agent is handed. `test_dashboard.py` covers the UI's run store and what the
+server refuses to accept from the form.

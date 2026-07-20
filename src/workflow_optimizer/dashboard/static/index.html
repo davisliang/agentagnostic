@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>workflow optimizer</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { background:#0e1116; color:#cfd6e4; font:13px/1.45 -apple-system,BlinkMacSystemFont,system-ui,sans-serif; margin:0; }
+  header { padding:10px 18px; background:#161b22; border-bottom:1px solid #2a313c; display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:14px; margin:0; color:#7dd3fc; font-weight:600; letter-spacing:.5px; }
+  header .meta { color:#8b95a7; font-size:12px; }
+  header .spacer { margin-left:auto; }
+  label.toggle { color:#8b95a7; font-size:12px; cursor:pointer; }
+  main { display:grid; grid-template-columns: 320px 1fr; height: calc(100vh - 41px); }
+  #runs { border-right:1px solid #2a313c; padding:10px; overflow-y:auto; }
+  #detail { padding:14px 22px; overflow-y:auto; }
+  .empty { color:#5b667a; font-style:italic; padding:8px 2px; }
+
+  button { background:#1d2742; color:#cfd6e4; border:1px solid #2f3e63; border-radius:6px;
+           padding:6px 12px; font:inherit; font-size:12px; cursor:pointer; }
+  button:hover { background:#24314f; }
+  button.primary { background:#164e33; border-color:#1e7a4d; color:#86efac; font-weight:600; }
+  button.primary:hover { background:#1a5c3c; }
+  button.danger { background:#3a1a1a; border-color:#6d2b2b; color:#fca5a5; }
+  button.danger:hover { background:#4a2020; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  input, select { background:#0a0e14; color:#cfd6e4; border:1px solid #2a313c; border-radius:4px;
+                  padding:5px 7px; font:inherit; font-size:12px; width:100%; }
+
+  .run { padding:8px 10px; border-radius:6px; cursor:pointer; margin-bottom:4px; border:1px solid transparent; }
+  .run:hover { background:#1a2030; }
+  .run.active { background:#1d2742; border-color:#2f3e63; }
+  .run .id { font-weight:600; color:#dde3ef; font-size:12px; word-break:break-all; }
+  .run .sub { font-size:11px; color:#7c8699; margin-top:3px; display:flex; gap:8px; align-items:center; }
+
+  .pill { padding:2px 8px; border-radius:12px; font-size:10px; font-weight:600;
+          text-transform:uppercase; letter-spacing:.4px; border:1px solid #2a313c;
+          background:#1a2030; color:#7c8699; white-space:nowrap; }
+  .pill.running { background:#3a2a14; color:#fbbf24; border-color:#7a5018; animation:pulse 1.5s infinite; }
+  .pill.done    { background:#143123; color:#86efac; border-color:#1e5235; }
+  .pill.failed  { background:#2a1414; color:#fca5a5; border-color:#6d2b2b; }
+  .pill.stopped { background:#241a2e; color:#c4b5fd; border-color:#4c3a63; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+
+  .phases { display:flex; gap:4px; margin:12px 0 16px; flex-wrap:wrap; }
+  .phase { padding:4px 10px; border-radius:14px; background:#1a2030; color:#7c8699;
+           font-size:11px; border:1px solid #2a313c; }
+  .phase.done   { background:#143123; color:#86efac; border-color:#1e5235; }
+  .phase.active { background:#3a2a14; color:#fbbf24; border-color:#7a5018; animation:pulse 1.5s infinite; }
+
+  h2 { font-size:13px; color:#7dd3fc; margin:18px 0 8px; text-transform:uppercase;
+       letter-spacing:.5px; font-weight:600; }
+  .card { background:#161b22; border:1px solid #2a313c; border-radius:6px; padding:10px 12px; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .stat { font-size:17px; color:#dde3ef; }
+  .stat .lbl { font-size:10px; color:#7c8699; text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
+
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid #1d242e; }
+  th { color:#7c8699; font-weight:500; font-size:10px; text-transform:uppercase; letter-spacing:.4px; }
+  td.num { text-align:right; font-family:ui-monospace,Menlo,monospace; }
+  tr.cand { cursor:pointer; }
+  tr.cand:hover td { background:#1a2030; }
+  tr.cand.sel td { background:#1d2742; }
+  .name { font-family:ui-monospace,Menlo,monospace; color:#dde3ef; }
+  .tag { font-size:10px; padding:1px 6px; border-radius:10px; background:#143123;
+         color:#86efac; border:1px solid #1e5235; margin-left:6px; }
+  .warn { color:#fca5a5; }
+
+  pre { background:#0a0e14; border:1px solid #2a313c; border-radius:4px; padding:10px;
+        overflow:auto; max-height:340px; white-space:pre-wrap; word-break:break-word;
+        font:11px/1.5 ui-monospace,Menlo,monospace; color:#bdc4d3; margin:0; }
+  .desc { color:#8b95a7; font-size:12px; margin:6px 0 8px; line-height:1.5; }
+
+  /* verbose views */
+  details { background:#161b22; border:1px solid #2a313c; border-radius:6px; margin-bottom:6px; }
+  details > summary { cursor:pointer; padding:8px 12px; color:#dde3ef; font-size:12px;
+                      list-style:none; display:flex; gap:10px; align-items:baseline; }
+  details > summary::-webkit-details-marker { display:none; }
+  details > summary:before { content:"▸"; color:#5b667a; font-size:10px; }
+  details[open] > summary:before { content:"▾"; }
+  details > summary:hover { background:#1a2030; }
+  details .inner { padding:0 12px 12px; }
+  .ex-score { font-family:ui-monospace,Menlo,monospace; font-size:11px; }
+  .ex-score.pass { color:#86efac; } .ex-score.fail { color:#fca5a5; }
+  .ex-q { color:#8b95a7; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .call { border-left:2px solid #2f3e63; padding-left:10px; margin:10px 0; }
+  .call .hd { display:flex; gap:10px; align-items:baseline; font-size:11px; margin-bottom:4px; }
+  .call .model { color:#7dd3fc; font-family:ui-monospace,Menlo,monospace; font-weight:600; }
+  .call .cost { color:#7c8699; margin-left:auto; font-family:ui-monospace,Menlo,monospace; }
+  .io-lbl { font-size:10px; color:#7c8699; text-transform:uppercase; letter-spacing:.5px; margin:6px 0 3px; }
+  .clip { color:#fbbf24; font-size:10px; font-style:italic; }
+  .tabs { display:flex; gap:6px; margin:10px 0 8px; flex-wrap:wrap; }
+  .tab { padding:4px 12px; border-radius:6px; background:#161b22; border:1px solid #2a313c;
+         color:#8b95a7; font-size:11px; cursor:pointer; }
+  .tab:hover { background:#1a2030; }
+  .tab.on { background:#1d2742; border-color:#2f3e63; color:#dde3ef; }
+
+  form.newrun { display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; margin-bottom:10px; }
+  form.newrun .full { grid-column:1 / -1; }
+  form.newrun label { display:block; font-size:10px; color:#7c8699; text-transform:uppercase;
+                      letter-spacing:.4px; margin-bottom:3px; }
+  .note { color:#fbbf24; font-size:11px; margin-top:6px; }
+  .err { color:#fca5a5; font-size:12px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>workflow optimizer</h1>
+  <span class="meta" id="summary">—</span>
+  <span class="tab on" id="tab-runs" onclick="setView('runs')">runs</span>
+  <span class="tab" id="tab-compare" onclick="setView('compare')">compare</span>
+  <span class="spacer"></span>
+  <label class="toggle"><input type="checkbox" id="autorefresh" checked> auto-refresh 3s</label>
+</header>
+<main>
+  <aside id="runs">
+    <button class="primary" style="width:100%;margin-bottom:10px" id="newbtn">+ new search</button>
+    <div id="newslot"></div>
+    <div id="runlist"><div class="empty">loading…</div></div>
+  </aside>
+  <section id="detail"><div class="empty">select a run, or start a new one</div></section>
+</main>
+
+<script>
+const PHASES = ["queued","analyzing","designing","ranking","done"];
+let activeId = null, timer = null, selectedCandidate = null, showNew = false;
+let candView = "code", traceCache = null, logLines = 400;   // verbose-view state
+let view = "runs", newMode = "benchmark", uploaded = null, benchmarks = [];
+let compareTask = "", comparePoints = [];
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const usd = n => n == null ? "—" : "$" + Number(n).toFixed(5);
+const pct = n => n == null ? "—" : (Number(n) * 100).toFixed(0) + "%";
+const acc = n => n == null ? "—" : Number(n).toFixed(2);
+
+function elapsed(s) {
+  if (!s.started_at) return "—";
+  const end = s.ended_at || Date.now() / 1000;
+  const secs = Math.max(0, Math.round(end - s.started_at));
+  return secs < 60 ? secs + "s" : Math.floor(secs / 60) + "m " + (secs % 60) + "s";
+}
+
+// ---- run list ---------------------------------------------------------------
+// Polling only replaces #runlist. The new-search form lives in its own node and
+// is rendered on toggle, never on a tick — otherwise the refresh would destroy
+// the form (and whatever you were typing into it) every three seconds.
+async function loadRuns() {
+  const data = await (await fetch("/api/runs")).json();
+  const runs = data.runs || [];
+  const live = runs.filter(r => r.state === "running").length;
+  document.getElementById("summary").textContent =
+    `${runs.length} run${runs.length === 1 ? "" : "s"}` + (live ? ` · ${live} running` : "");
+  document.getElementById("runlist").innerHTML =
+    runs.length ? runs.map(runRow).join("") : `<div class="empty">no runs yet</div>`;
+}
+
+function runRow(r) {
+  return `<div class="run ${r.run_id === activeId ? "active" : ""}" onclick="select('${esc(r.run_id)}')">
+    <div class="id">${esc(r.run_id)}</div>
+    <div class="sub">
+      <span class="pill ${esc(r.state)}">${esc(r.state === "running" ? r.phase : r.state)}</span>
+      <span>${r.n_candidates || 0} cand</span>
+      <span>${elapsed(r)}</span>
+    </div></div>`;
+}
+
+// ---- new search form --------------------------------------------------------
+function newRunForm() {
+  return `<div class="card" style="margin-bottom:12px">
+    <div class="tabs">
+      <span class="tab ${newMode === "benchmark" ? "on" : ""}" onclick="setNewMode('benchmark')">benchmark</span>
+      <span class="tab ${newMode === "prompt" ? "on" : ""}" onclick="setNewMode('prompt')">describe a task</span>
+    </div>
+    <form class="newrun" onsubmit="return startRun(event)">
+      <div class="full" id="f-source"></div>
+      <div><label>design rounds</label><input id="f-rounds" type="number" min="1" max="10" value="2"></div>
+      <div><label>examples</label><input id="f-examples" type="number" min="2" max="500" value="40"></div>
+      <div><label>concurrency</label><input id="f-concurrency" type="number" min="1" max="32" value="8"></div>
+      <div><label>budget $/query</label><input id="f-budget" type="number" step="0.0001" value="0.002"></div>
+      <div class="full"><button class="primary" type="submit" id="f-go">start search</button></div>
+    </form>
+    <div class="note">This spends real API money — the design agent plus every candidate evaluation.</div>
+    <div class="err" id="f-err"></div>
+  </div>`;
+}
+
+async function fillTasks() {
+  const slot = document.getElementById("f-source");
+  if (!slot) return;
+  if (!benchmarks.length) {
+    const data = await (await fetch("/api/tasks")).json();
+    benchmarks = data.benchmarks || [];
+    window._tasks = data.tasks || [];
+  }
+  slot.innerHTML = newMode === "benchmark" ? benchmarkPicker() : promptFields();
+  if (newMode === "benchmark") describeTask();
+}
+
+function benchmarkPicker() {
+  const known = new Set(benchmarks.map(b => b.name));
+  const options = (window._tasks || []).map(name => {
+    const b = benchmarks.find(x => x.name === name);
+    const label = b ? `${name} — ${b.examples} ex, ${b.grader}` : name;
+    return `<option value="${esc(name)}">${esc(label)}</option>`;
+  }).join("");
+  const unsupported = benchmarks.filter(b => !b.supported);
+  return `<label>task or benchmark</label>
+    <select id="f-task" onchange="describeTask()">${options}</select>
+    <div class="desc" id="f-desc"></div>` +
+    (unsupported.length ? `<div class="note">not runnable here: ` +
+      unsupported.map(b => `${esc(b.name)} (${esc(b.note)})`).join("; ") + `</div>` : "");
+}
+
+function describeTask() {
+  const sel = document.getElementById("f-task"), out = document.getElementById("f-desc");
+  if (!sel || !out) return;
+  const b = benchmarks.find(x => x.name === sel.value);
+  if (!b) { out.textContent = "a task config from config/task/"; return; }
+  const base = b.baselines || {};
+  const refs = base.haiku != null
+    ? ` · routerllm: haiku ${acc(base.haiku)} · opus ${acc(base.opus)} · router ${acc(base.router)} · oracle ${acc(base.oracle)}`
+    : "";
+  out.innerHTML = esc(b.description) +
+    `<div style="margin-top:4px;color:#7c8699">${b.examples} examples` +
+    (b.sampled_from && b.sampled_from !== b.examples ? ` (sampled from ${b.sampled_from})` : "") +
+    esc(refs) + `</div>`;
+}
+
+function promptFields() {
+  return `<label>describe the task</label>
+    <textarea id="f-prompt" rows="4" placeholder="e.g. Classify a support email as billing, technical, or account. Answer with the label alone."
+      style="width:100%;background:#0a0e14;color:#cfd6e4;border:1px solid #2a313c;border-radius:4px;padding:6px;font:inherit;font-size:12px"></textarea>
+    <label style="margin-top:8px">dataset (optional)</label>
+    <input type="file" id="f-file" accept=".jsonl,.json,.txt" onchange="readUpload(event)">
+    <div class="desc" id="f-fileinfo">JSONL or a JSON array, one object per example with
+      <code>question</code> and <code>answer</code>. Leave empty and examples are generated.</div>`;
+}
+
+function setNewMode(mode) { newMode = mode; uploaded = null; document.getElementById("newslot").innerHTML = newRunForm(); fillTasks(); }
+
+function readUpload(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  const info = document.getElementById("f-fileinfo");
+  if (!file) { uploaded = null; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    uploaded = reader.result;
+    const lines = uploaded.trim().split("\n").filter(Boolean).length;
+    info.innerHTML = `<span style="color:#86efac">${esc(file.name)}</span> — ${lines} line(s) read.
+      The server validates it when the search starts.`;
+  };
+  reader.readAsText(file);
+}
+
+function toggleNew() {
+  showNew = !showNew;
+  document.getElementById("newslot").innerHTML = showNew ? newRunForm() : "";
+  document.getElementById("newbtn").textContent = showNew ? "− cancel" : "+ new search";
+  if (showNew) fillTasks();
+}
+
+async function startRun(ev) {
+  ev.preventDefault();
+  const go = document.getElementById("f-go");
+  go.disabled = true; go.textContent = "starting…";
+  const body = {
+    task: newMode === "benchmark" ? document.getElementById("f-task").value : "",
+    prompt: newMode === "prompt" ? (document.getElementById("f-prompt").value || "") : "",
+    dataset: newMode === "prompt" ? (uploaded || "") : "",
+    overrides: {
+      "designer.rounds": document.getElementById("f-rounds").value,
+      "data.n_examples": document.getElementById("f-examples").value,
+      "runtime.concurrency": document.getElementById("f-concurrency").value,
+      "report.max_cost_per_query": document.getElementById("f-budget").value,
+    },
+  };
+  const res = await (await fetch("/api/runs", {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+  })).json();
+  if (!res.ok) {
+    document.getElementById("f-err").textContent = res.error || "could not start";
+    go.disabled = false; go.textContent = "start search";
+    return false;
+  }
+  showNew = false; activeId = res.run_id; selectedCandidate = null;
+  document.getElementById("newslot").innerHTML = "";      // close the form on success
+  document.getElementById("newbtn").textContent = "+ new search";
+  await tick();
+  return false;
+}
+
+async function stopRun() {
+  if (!activeId) return;
+  await fetch(`/api/run/${encodeURIComponent(activeId)}/stop`, {method: "POST"});
+  await tick();
+}
+
+function select(id) { activeId = id; selectedCandidate = null; tick(); }
+
+// ---- detail -----------------------------------------------------------------
+async function loadDetail() {
+  if (!activeId) return;
+  const d = await (await fetch("/api/run/" + encodeURIComponent(activeId)
+                             + "?log_lines=" + logLines)).json();
+  if (d.error) { document.getElementById("detail").innerHTML = `<div class="empty">run not found</div>`; return; }
+  const s = d.status, done = s.state !== "running";
+  const cands = d.candidates || [];
+  const scored = cands.filter(c => c.test);
+
+  const parts = [];
+  parts.push(`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0;text-transform:none;font-family:ui-monospace,Menlo,monospace">${esc(s.run_id)}</h2>
+      <span class="pill ${esc(s.state)}">${esc(s.state === "running" ? s.phase : s.state)}</span>
+      ${s.state === "running" ? `<button class="danger" onclick="stopRun()">stop</button>` : ""}
+    </div>`);
+  if (s.error) parts.push(`<div class="err">${esc(s.error)}</div>`);
+
+  parts.push(`<div class="phases">` + PHASES.map(p => {
+    const at = PHASES.indexOf(s.phase), i = PHASES.indexOf(p);
+    const cls = done && s.state === "done" ? "done" : (i < at ? "done" : (i === at ? "active" : ""));
+    const label = p === "designing" && s.round ? `designing ${s.round}/${s.rounds}` : p;
+    return `<span class="phase ${cls}">${esc(label)}</span>`;
+  }).join("") + `</div>`);
+
+  parts.push(`<div class="grid4">
+    ${stat("task", esc(s.task))}
+    ${stat("candidates", s.n_candidates || 0)}
+    ${stat("dev / test", `${s.n_dev || "—"} / ${s.n_test || "—"}`)}
+    ${stat("elapsed", elapsed(s))}
+  </div>`);
+
+  if (d.analysis && d.analysis.check) {
+    parts.push(`<h2>task</h2><div class="card">
+      <div><span class="lbl" style="color:#7c8699">grading:</span> <b>${esc(d.analysis.check)}</b>
+      ${d.analysis.judge_status ? `<span class="tag">${esc(d.analysis.judge_status)}</span>` : ""}</div>
+      <div class="desc">${esc(d.analysis.description)}</div></div>`);
+  }
+
+  if (scored.length) parts.push(`<h2>accuracy vs cost (test)</h2>` + frontierSvg(scored, d.frontier || []));
+
+  if (cands.length) {
+    parts.push(`<h2>candidates</h2><div class="card" style="padding:0">
+      <table><thead><tr>
+        <th>workflow</th><th class="num">dev acc</th><th class="num">dev $/q</th>
+        <th class="num">test acc</th><th class="num">test $/q</th><th class="num">cached</th>
+      </tr></thead><tbody>` +
+      cands.map(c => {
+        const onFront = (d.frontier || []).includes(c.name);
+        return `<tr class="cand ${selectedCandidate === c.name ? "sel" : ""}" onclick="pick('${esc(c.name)}')">
+          <td class="name">${esc(c.name)}${onFront ? `<span class="tag">frontier</span>` : ""}
+            ${(c.dev?.errors || []).length ? `<span class="warn" title="${esc((c.dev.errors||[]).join(' | '))}">⚠</span>` : ""}</td>
+          <td class="num">${acc(c.dev?.accuracy)}</td>
+          <td class="num">${usd(c.dev?.cost_per_query)}</td>
+          <td class="num">${acc(c.test?.accuracy)}</td>
+          <td class="num">${usd(c.test?.cost_per_query)}</td>
+          <td class="num">${pct(c.dev?.cached_input_frac)}</td>
+        </tr>`;
+      }).join("") + `</tbody></table></div>`);
+
+    const sel = cands.find(c => c.name === selectedCandidate);
+    if (sel) {
+      parts.push(`<h2>${esc(sel.name)}</h2>`);
+      if (sel.description) parts.push(`<div class="desc">${esc(sel.description)}</div>`);
+      parts.push(`<div class="tabs">
+        <span class="tab ${candView === "code" ? "on" : ""}" onclick="setCandView('code')">code</span>
+        <span class="tab ${candView === "dev" ? "on" : ""}" onclick="setCandView('dev')">dev calls</span>
+        <span class="tab ${candView === "test" ? "on" : ""}" onclick="setCandView('test')">test calls</span>
+      </div>`);
+      if (candView === "code") {
+        parts.push(sel.code ? `<pre>${esc(sel.code.trim())}</pre>`
+                            : `<div class="empty">code is written when the search finishes</div>`);
+      } else {
+        parts.push(`<div id="trace">${traceHtml()}</div>`);
+      }
+    }
+  }
+
+  parts.push(`<h2>task input &amp; grading</h2>` + analysisHtml(d.analysis));
+  parts.push(`<h2>config</h2><details><summary>the resolved config this run used</summary>
+    <div class="inner"><pre>${esc(d.config || "(none)")}</pre></div></details>`);
+  parts.push(`<h2>timeline</h2>` + timelineHtml(d.events || []));
+
+  parts.push(`<h2>log
+    <span class="tab ${logLines > 400 ? "on" : ""}" style="float:right;text-transform:none"
+      onclick="toggleLog()">${logLines > 400 ? "show tail" : "show full log"}</span></h2>
+    <pre id="log">${esc(d.log || "(no output yet)")}</pre>`);
+
+  // Re-rendering wholesale would throw away where the reader had scrolled to.
+  // Keep the log's position, unless it was pinned to the bottom — then follow.
+  const old = document.getElementById("log");
+  const wasPinned = !old || old.scrollHeight - old.scrollTop - old.clientHeight < 40;
+  const wasAt = old ? old.scrollTop : 0;
+  const pane = document.getElementById("detail");
+  const paneAt = pane.scrollTop;
+  // Which disclosures were open, so a refresh doesn't collapse what you opened.
+  const wasOpen = [...pane.querySelectorAll("details")].map(x => x.open);
+
+  pane.innerHTML = parts.join("");
+  pane.querySelectorAll("details").forEach((x, i) => { if (wasOpen[i]) x.open = true; });
+  pane.scrollTop = paneAt;
+  const log = document.getElementById("log");
+  if (log) log.scrollTop = wasPinned ? log.scrollHeight : wasAt;
+}
+
+function stat(lbl, val) {
+  return `<div class="card"><div class="lbl">${lbl}</div><div class="stat">${val}</div></div>`;
+}
+
+function pick(name) {
+  selectedCandidate = selectedCandidate === name ? null : name;
+  traceCache = null;
+  loadDetail();
+  if (selectedCandidate && candView !== "code") loadTrace();
+}
+
+function setCandView(v) { candView = v; traceCache = null; loadDetail(); if (v !== "code") loadTrace(); }
+function toggleLog() { logLines = logLines > 400 ? 400 : 20000; loadDetail(); }
+
+// ---- what the workflow was actually asked, and what came back ----------------
+// Every model call a candidate made, per example: the prompt in, the reply out.
+async function loadTrace() {
+  if (!activeId || !selectedCandidate) return;
+  const url = `/api/trace/${encodeURIComponent(activeId)}?name=${encodeURIComponent(selectedCandidate)}&split=${candView}`;
+  const data = await (await fetch(url)).json();
+  traceCache = data.error ? {error: data.error} : data;
+  const box = document.getElementById("trace");
+  if (box) box.innerHTML = traceHtml();
+}
+
+function traceHtml() {
+  if (!traceCache) return `<div class="empty">loading calls…</div>`;
+  if (traceCache.error) {
+    return `<div class="empty">no calls recorded for this split yet — traces are written
+            as each candidate is scored</div>`;
+  }
+  const rows = (traceCache.records || []).map((r, i) => {
+    const ok = r.score >= 0.999, part = r.score > 0 && !ok;
+    const cls = ok ? "pass" : (part ? "" : "fail");
+    return `<details>
+      <summary>
+        <span class="ex-score ${cls}">${Number(r.score).toFixed(2)}</span>
+        <span class="ex-q">${esc(r.question.text.slice(0, 110))}</span>
+        <span class="cost" style="color:#7c8699;font-family:ui-monospace,Menlo,monospace;font-size:11px">
+          ${usd(r.cost)} · ${r.calls.length} call${r.calls.length === 1 ? "" : "s"}</span>
+      </summary>
+      <div class="inner">
+        ${r.error ? `<div class="err">${esc(r.error)}</div>` : ""}
+        <div class="io-lbl">returned</div><pre>${esc(r.answer.text) || "(empty)"}</pre>
+        <div class="io-lbl">gold answer</div><pre>${esc(r.gold.text) || "(none)"}</pre>
+        <div class="io-lbl">model calls</div>
+        ${r.calls.map(callHtml).join("") || `<div class="empty">no model calls</div>`}
+      </div></details>`;
+  });
+  return rows.length ? rows.join("") : `<div class="empty">no examples recorded</div>`;
+}
+
+function callHtml(c, i) {
+  const clipped = t => t.clipped ? `<span class="clip">clipped — ${t.chars} chars total</span>` : "";
+  return `<div class="call">
+    <div class="hd"><span class="model">${esc(c.model)}</span>
+      <span style="color:#7c8699">call ${i + 1}</span>
+      <span class="cost">${usd(c.cost)} · in ${c.usage.input + c.usage.cache_read + c.usage.cache_write} / out ${c.usage.output} tok</span></div>
+    <div class="io-lbl">prompt ${clipped(c.prompt)}</div><pre>${esc(c.prompt.text)}</pre>
+    <div class="io-lbl">reply ${clipped(c.reply)}</div><pre>${esc(c.reply.text) || "(empty)"}</pre>
+  </div>`;
+}
+
+// ---- the task as the designer and grader see it -----------------------------
+function analysisHtml(a) {
+  if (!a || !a.check) return `<div class="empty">not analyzed yet</div>`;
+  const sample = (items, label) => items && items.length
+    ? `<div class="io-lbl">${label}</div>` + items.map(x =>
+        `<pre>Q: ${esc(x.question)}\nA: ${esc(x.answer)}</pre>`).join("") : "";
+  return `<details><summary>grading rule, rubric, and example data</summary><div class="inner">
+    <div class="io-lbl">grading</div><div>${esc(a.check)} — ${esc(a.judge_status || "")}</div>
+    ${a.rubric ? `<div class="io-lbl">judge rubric</div><pre>${esc(a.rubric)}</pre>` : ""}
+    ${a.answer_examples && a.answer_examples.length
+      ? `<div class="io-lbl">answer format shown to the designer</div>
+         <pre>${esc(a.answer_examples.join("\n"))}</pre>` : ""}
+    ${sample(a.dev_sample, "dev examples (first 3)")}
+    ${sample(a.test_sample, "held-out test examples (first 3)")}
+  </div></details>`;
+}
+
+function timelineHtml(events) {
+  if (!events.length) return `<div class="empty">nothing yet</div>`;
+  const t0 = events[0].t;
+  return `<div class="card" style="padding:0"><table><tbody>` + events.map(e => {
+    const detail = e.event === "candidate"
+      ? `${e.name} — dev ${acc(e.dev_accuracy)}, ${usd(e.dev_cost)}`
+      : e.event === "test_scored" ? `${e.name} — test ${acc(e.test_accuracy)}, ${usd(e.test_cost)}`
+      : e.event === "analyzed" ? `${e.check} · ${e.n_dev} dev / ${e.n_test} test`
+      : e.event === "round_start" ? `round ${e.round} of ${e.rounds}`
+      : e.event === "ranking" ? `${e.n_finalists} finalist(s) on the dev frontier`
+      : e.error || "";
+    return `<tr><td style="width:60px;color:#5b667a;font-family:ui-monospace,Menlo,monospace">
+        +${Math.round(e.t - t0)}s</td>
+      <td style="width:110px;color:#fbbf24;font-size:11px">${esc(e.event)}</td>
+      <td style="color:#bdc4d3">${esc(detail)}</td></tr>`;
+  }).join("") + `</tbody></table></div>`;
+}
+
+// ---- frontier plot (inline SVG, no libraries) --------------------------------
+function frontierSvg(cands, frontierNames) {
+  const W = 640, H = 300, P = {l: 52, r: 130, t: 14, b: 38};
+  const costs = cands.map(c => c.test.cost_per_query), accs = cands.map(c => c.test.accuracy);
+  const c0 = Math.min(...costs), c1 = Math.max(...costs), a0 = Math.min(...accs), a1 = Math.max(...accs);
+  const cPad = (c1 - c0) * .15 || Math.max(c0 * .15, 1e-5);
+  const aPad = (a1 - a0) * .15 || .05;
+  const cLo = Math.max(0, c0 - cPad), cHi = c1 + cPad;
+  const aLo = Math.max(0, a0 - aPad), aHi = Math.min(1, a1 + aPad);
+  const x = c => P.l + (cHi === cLo ? .5 : (c - cLo) / (cHi - cLo)) * (W - P.l - P.r);
+  const y = a => H - P.b - (aHi === aLo ? .5 : (a - aLo) / (aHi - aLo)) * (H - P.t - P.b);
+
+  const front = cands.filter(c => frontierNames.includes(c.name))
+                     .sort((p, q) => p.test.cost_per_query - q.test.cost_per_query);
+  const line = front.map((c, i) => `${i ? "L" : "M"}${x(c.test.cost_per_query).toFixed(1)},${y(c.test.accuracy).toFixed(1)}`).join(" ");
+
+  const ticks = [];
+  for (let i = 0; i <= 3; i++) {
+    const a = aLo + (aHi - aLo) * i / 3, c = cLo + (cHi - cLo) * i / 3;
+    ticks.push(`<line x1="${P.l}" y1="${y(a).toFixed(1)}" x2="${W - P.r}" y2="${y(a).toFixed(1)}" stroke="#1d242e"/>
+      <text x="${P.l - 8}" y="${(y(a) + 3).toFixed(1)}" fill="#5b667a" font-size="10" text-anchor="end">${a.toFixed(2)}</text>
+      <text x="${x(c).toFixed(1)}" y="${H - P.b + 14}" fill="#5b667a" font-size="10" text-anchor="middle">$${c.toFixed(4)}</text>`);
+  }
+
+  const dots = cands.map(c => {
+    const on = frontierNames.includes(c.name);
+    return `<circle cx="${x(c.test.cost_per_query).toFixed(1)}" cy="${y(c.test.accuracy).toFixed(1)}"
+      r="${on ? 5 : 4}" fill="${on ? "#d9534f" : "#5b667a"}" stroke="#0e1116" stroke-width="1.5">
+      <title>${esc(c.name)} — acc ${acc(c.test.accuracy)}, ${usd(c.test.cost_per_query)}/query</title></circle>`;
+  }).join("");
+
+  const legend = front.slice(0, 8).map((c, i) =>
+    `<text x="${W - P.r + 10}" y="${P.t + 14 + i * 15}" fill="#bdc4d3" font-size="10"
+      font-family="ui-monospace,Menlo,monospace">${esc(c.name.slice(0, 20))}</text>`).join("");
+
+  return `<div class="card"><svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+    ${ticks.join("")}
+    <path d="${line}" fill="none" stroke="#d9534f" stroke-width="1.5"/>
+    ${dots}${legend}
+    <text x="${(P.l + W - P.r) / 2}" y="${H - 4}" fill="#7c8699" font-size="10" text-anchor="middle">cost per query (USD)</text>
+    <text x="12" y="${H / 2}" fill="#7c8699" font-size="10" text-anchor="middle"
+      transform="rotate(-90 12 ${H / 2})">accuracy</text>
+  </svg></div>`;
+}
+
+// ---- compare: every candidate from every run, on one pair of axes -----------
+function setView(v) {
+  view = v;
+  document.getElementById("tab-runs").className = "tab" + (v === "runs" ? " on" : "");
+  document.getElementById("tab-compare").className = "tab" + (v === "compare" ? " on" : "");
+  tick();
+}
+
+async function loadCompare() {
+  const data = await (await fetch("/api/compare")).json();
+  const points = data.points || [];
+  const pane = document.getElementById("detail");
+  if (!points.length) {
+    pane.innerHTML = `<div class="empty">no scored candidates yet — start a search</div>`;
+    return;
+  }
+  const tasks = [...new Set(points.map(p => p.task))].sort();
+  const at = pane.scrollTop;
+  pane.innerHTML = `<h2>cost vs accuracy — every candidate, every run</h2>
+    <div class="desc">Each point is one workflow. Hover for its details; test scores are used
+      where a candidate has them, dev otherwise. Dashed lines are routerllm's recorded
+      accuracies for that benchmark.</div>
+    ${compareControls(tasks)}
+    ${compareChart(points, data.baselines || {})}
+    ${compareTable(points)}`;
+  pane.scrollTop = at;
+  wireHover();
+}
+
+function compareControls(tasks) {
+  return `<div class="tabs">
+    <span class="tab ${compareTask === "" ? "on" : ""}" onclick="setCompareTask('')">all tasks</span>` +
+    tasks.map(t => `<span class="tab ${compareTask === t ? "on" : ""}"
+      onclick="setCompareTask('${esc(t)}')">${esc(t)}</span>`).join("") + `</div>`;
+}
+function setCompareTask(t) { compareTask = t; loadCompare(); }
+
+function compareChart(allPoints, baselines) {
+  const points = compareTask ? allPoints.filter(p => p.task === compareTask) : allPoints;
+  if (!points.length) return `<div class="empty">nothing for that task yet</div>`;
+  const W = 900, H = 420, P = {l: 62, r: 24, t: 16, b: 46};
+
+  // Cost spans orders of magnitude across strategies, so the x axis is log —
+  // the same choice routerllm's own cost/accuracy chart makes.
+  const costs = points.map(p => Math.max(p.cost, 1e-7));
+  const lo = Math.log10(Math.min(...costs)), hi = Math.log10(Math.max(...costs));
+  const padX = (hi - lo) * 0.08 || 0.3;
+  const x0 = lo - padX, x1 = hi + padX;
+  const refs = compareTask ? (baselines[compareTask] || {}) : {};
+  const accs = points.map(p => p.accuracy)
+    .concat(["haiku", "opus", "router", "oracle"].filter(k => refs[k] != null).map(k => refs[k]));
+  const a0 = Math.max(0, Math.min(...accs) - 0.06), a1 = Math.min(1, Math.max(...accs) + 0.06);
+
+  const x = c => P.l + (Math.log10(Math.max(c, 1e-7)) - x0) / (x1 - x0 || 1) * (W - P.l - P.r);
+  const y = a => H - P.b - (a - a0) / (a1 - a0 || 1) * (H - P.t - P.b);
+
+  const grid = [];
+  for (let i = 0; i <= 4; i++) {
+    const a = a0 + (a1 - a0) * i / 4, c = Math.pow(10, x0 + (x1 - x0) * i / 4);
+    grid.push(`<line x1="${P.l}" y1="${y(a).toFixed(1)}" x2="${W - P.r}" y2="${y(a).toFixed(1)}" stroke="#1d242e"/>
+      <text x="${P.l - 8}" y="${(y(a) + 3).toFixed(1)}" fill="#5b667a" font-size="10" text-anchor="end">${a.toFixed(2)}</text>
+      <text x="${x(c).toFixed(1)}" y="${H - P.b + 15}" fill="#5b667a" font-size="10" text-anchor="middle">$${c < 0.001 ? c.toExponential(1) : c.toFixed(4)}</text>`);
+  }
+
+  const refColors = {haiku: "#7dd3fc", opus: "#c4b5fd", router: "#fbbf24", oracle: "#86efac"};
+  const refLines = Object.entries(refs).filter(([k]) => refColors[k]).map(([k, v]) =>
+    `<line x1="${P.l}" y1="${y(v).toFixed(1)}" x2="${W - P.r}" y2="${y(v).toFixed(1)}"
+       stroke="${refColors[k]}" stroke-width="1" stroke-dasharray="4 3" opacity=".65"/>
+     <text x="${W - P.r - 4}" y="${(y(v) - 4).toFixed(1)}" fill="${refColors[k]}" font-size="9"
+       text-anchor="end">${k} ${acc(v)}</text>`).join("");
+
+  const byTask = [...new Set(points.map(p => p.task))];
+  const hue = t => `hsl(${(byTask.indexOf(t) * 67) % 360} 70% 62%)`;
+  const dots = points.map((p, i) =>
+    `<circle class="cp" data-i="${i}" cx="${x(p.cost).toFixed(1)}" cy="${y(p.accuracy).toFixed(1)}"
+      r="${p.frontier ? 6 : 4}" fill="${compareTask ? (p.frontier ? "#d9534f" : "#5b667a") : hue(p.task)}"
+      stroke="#0e1116" stroke-width="1.5" style="cursor:pointer"/>`).join("");
+
+  comparePoints = points;
+  return `<div class="card" style="position:relative">
+    <svg id="cmp" viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+      ${grid.join("")}${refLines}${dots}
+      <text x="${(P.l + W - P.r) / 2}" y="${H - 6}" fill="#7c8699" font-size="10" text-anchor="middle">cost per query (USD, log scale)</text>
+      <text x="14" y="${H / 2}" fill="#7c8699" font-size="10" text-anchor="middle" transform="rotate(-90 14 ${H / 2})">accuracy</text>
+    </svg>
+    <div id="tip" style="position:absolute;display:none;pointer-events:none;background:#0a0e14;
+      border:1px solid #2f3e63;border-radius:6px;padding:8px 10px;font-size:11px;line-height:1.55;
+      color:#cfd6e4;max-width:320px;z-index:5"></div></div>`;
+}
+
+// Hover is wired after render: the tooltip needs the point data, and inline
+// handlers would have to serialize it into every circle.
+function wireHover() {
+  const svg = document.getElementById("cmp"), tip = document.getElementById("tip");
+  if (!svg || !tip) return;
+  svg.querySelectorAll(".cp").forEach(dot => {
+    dot.addEventListener("mouseenter", ev => {
+      const p = comparePoints[+dot.dataset.i];
+      tip.innerHTML = `<b style="color:#dde3ef">${esc(p.name)}</b>
+        ${p.frontier ? `<span class="tag">frontier</span>` : ""}
+        <div style="color:#7dd3fc;margin-top:2px">${esc(p.task)}</div>
+        <div>accuracy <b>${acc(p.accuracy)}</b> · ${usd(p.cost)}/query
+          <span style="color:#7c8699">(${esc(p.split)})</span></div>
+        ${p.description ? `<div style="color:#8b95a7;margin-top:3px">${esc(p.description.slice(0, 160))}</div>` : ""}
+        <div style="color:#5b667a;margin-top:3px;font-family:ui-monospace,Menlo,monospace">${esc(p.run_id)}</div>`;
+      const box = svg.getBoundingClientRect(), r = dot.getBoundingClientRect();
+      tip.style.display = "block";
+      tip.style.left = Math.min(r.left - box.left + 12, box.width - 330) + "px";
+      tip.style.top = (r.top - box.top + 12) + "px";
+    });
+    dot.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+    dot.addEventListener("click", () => {
+      const p = comparePoints[+dot.dataset.i];
+      activeId = p.run_id; selectedCandidate = p.name; setView("runs");
+    });
+  });
+}
+
+function compareTable(allPoints) {
+  const points = (compareTask ? allPoints.filter(p => p.task === compareTask) : allPoints)
+    .slice().sort((a, b) => b.accuracy - a.accuracy || a.cost - b.cost);
+  return `<h2>all candidates</h2><div class="card" style="padding:0"><table><thead><tr>
+      <th>workflow</th><th>task</th><th class="num">accuracy</th><th class="num">$/query</th>
+      <th>split</th><th>run</th></tr></thead><tbody>` +
+    points.map(p => `<tr class="cand" onclick="activeId='${esc(p.run_id)}';selectedCandidate='${esc(p.name)}';setView('runs')">
+      <td class="name">${esc(p.name)}${p.frontier ? `<span class="tag">frontier</span>` : ""}</td>
+      <td>${esc(p.task)}</td><td class="num">${acc(p.accuracy)}</td><td class="num">${usd(p.cost)}</td>
+      <td style="color:#7c8699">${esc(p.split)}</td>
+      <td style="color:#5b667a;font-family:ui-monospace,Menlo,monospace;font-size:11px">${esc(p.run_id)}</td>
+    </tr>`).join("") + `</tbody></table></div>`;
+}
+
+// ---- polling ----------------------------------------------------------------
+async function tick() {
+  await loadRuns();
+  if (view === "compare") await loadCompare(); else await loadDetail();
+}
+function startTimer() { if (!timer) timer = setInterval(tick, 3000); }
+function stopTimer() { clearInterval(timer); timer = null; }
+document.getElementById("autorefresh").addEventListener("change", e =>
+  e.target.checked ? startTimer() : stopTimer());
+document.getElementById("newbtn").addEventListener("click", toggleNew);
+tick(); startTimer();
+</script>
+</body>
+</html>

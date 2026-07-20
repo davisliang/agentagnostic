@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 workflow-optimizer = "workflow_optimizer.cli:main"
+workflow-optimizer-ui = "workflow_optimizer.dashboard.server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -20,6 +21,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/workflow_optimizer"]
+artifacts = ["src/workflow_optimizer/dashboard/static/*"]
 
 [dependency-groups]
 dev = [

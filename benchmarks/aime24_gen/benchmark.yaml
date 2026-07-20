@@ -1,0 +1,19 @@
+# aime24_gen — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: aime24_gen
+description: >-
+  Solve an AIME 2024 competition maths problem. The answer is a single integer.
+source_dataset: Maxwell-Jia/AIME_2024
+num_fewshot: 0
+examples: 30
+sampled_from: 30
+routerllm_grader: exact
+grading_supported: true
+check_type: exact
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 2
+  haiku: 1.0
+  opus: 1.0
+  router: 1.0
+  oracle: 1.0

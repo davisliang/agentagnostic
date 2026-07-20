@@ -1,0 +1,19 @@
+# gsm_plus_mini — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: gsm_plus_mini
+description: >-
+  Solve a GSM-Plus grade-school maths word problem, including adversarial perturbations of the original GSM8K wording. The answer is a single number.
+source_dataset: qintongli/GSM-Plus
+num_fewshot: 5
+examples: 200
+sampled_from: 200
+routerllm_grader: exact
+grading_supported: true
+check_type: exact
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 259
+  haiku: 0.749
+  opus: 0.7992
+  router: 0.8031
+  oracle: 0.8224

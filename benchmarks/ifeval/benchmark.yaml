@@ -1,0 +1,21 @@
+# ifeval — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: ifeval
+description: >-
+  Follow the instructions in the prompt exactly. Each prompt states one or more verifiable formatting constraints. An answer is correct ONLY if it satisfies EVERY constraint; content quality is not judged, only compliance. The constraints are stated in the prompt, so a response can be checked against them before being returned.
+source_dataset: google/IFEval
+num_fewshot: 0
+examples: 200
+sampled_from: 200
+routerllm_grader: native
+grading_supported: true
+grading_note: lm-eval's own constraint checker; needs the routerllm checkout
+check_type: exact
+grader: experiments/routerllm_ifeval/grader.py
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 46
+  haiku: 0.8478
+  opus: 0.8913
+  router: 0.8478
+  oracle: 0.9565

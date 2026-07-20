@@ -1,0 +1,408 @@
+#!/usr/bin/env python3
+"""The workflow-optimizer UI: a stdlib HTTP server over the run directory.
+
+Serves one static page plus a small JSON API. Every read comes off disk, and
+every search runs in its own subprocess, so the server keeps no state: restart
+it mid-search and the page picks up exactly where it was.
+
+Usage:
+    uv run workflow-optimizer-ui                 # http://127.0.0.1:8770
+    uv run workflow-optimizer-ui --port 9000
+
+Binds to localhost by default. Starting a search spends real money, so anything
+that can reach this port can spend it.
+"""
+import argparse
+import json
+import os
+import signal
+import subprocess
+import sys
+import webbrowser
+from dataclasses import asdict
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+from .. import runstore
+from ..config import load_config
+from ..paths import ROOT
+
+STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
+
+# Overrides the New Search form can set, and how to read each one. Anything not
+# on this list is rejected: values reach OmegaConf, and the form is not a shell.
+FORM_FIELDS = {
+    "designer.rounds": int,
+    "data.n_examples": int,
+    "runtime.concurrency": int,
+    "runtime.max_model_calls": int,
+    "report.max_cost_per_query": float,
+    "report.min_accuracy": float,
+}
+
+
+def parse_dataset(text: str) -> tuple[list, str]:
+    """Read an uploaded dataset into examples.
+
+    Accepts JSONL or a JSON array, with the answer under "answer", "target" or
+    "gold" — the three spellings the exports around here use.
+
+    Args:
+        text: The uploaded file's contents.
+
+    Returns:
+        `(examples, "")` on success, or `([], reason)` if it can't be read.
+    """
+    text = (text or "").strip()
+    if not text:
+        return [], "the dataset is empty"
+
+    rows = []
+    if text.startswith("["):
+        try:
+            rows = json.loads(text)
+        except json.JSONDecodeError as error:
+            return [], f"not valid JSON: {error}"
+    else:
+        for number, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as error:
+                return [], f"line {number} is not valid JSON: {error}"
+
+    examples = []
+    for number, row in enumerate(rows, 1):
+        if not isinstance(row, dict):
+            return [], f"row {number} is not an object"
+        question = row.get("question") or row.get("input") or row.get("prompt")
+        answer = row.get("answer", row.get("target", row.get("gold")))
+        if question is None or answer is None:
+            return [], (f"row {number} needs a question and an answer — saw keys "
+                        f"{sorted(row)[:6]}")
+        examples.append({**row, "question": str(question), "answer": answer})
+
+    if len(examples) < 2:
+        return [], "at least 2 examples are needed, to split dev from test"
+    return examples, ""
+
+
+def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = "") -> dict:
+    """Create a run directory and launch the pipeline against it.
+
+    Args:
+        task: A task config name. Must be one of `runstore.list_tasks()` — it
+            names a file path, so an unknown value is rejected rather than
+            resolved. Ignored when `prompt` is given.
+        overrides: Config overrides keyed by dotted path. Only keys in
+            FORM_FIELDS are accepted, each coerced to that field's type.
+        prompt: A free-text task description. Starts an ad-hoc search instead of
+            using a task file; the analyzer infers the grading rule from it.
+        dataset_text: An uploaded JSONL or JSON array of examples. Optional — a
+            free-text task with no data generates its own.
+
+    Returns:
+        `{"ok": True, "run_id": ...}`, or `{"ok": False, "error": ...}`.
+    """
+    freetext = bool(prompt and prompt.strip())
+    if not freetext and task not in runstore.list_tasks():
+        return {"ok": False, "error": f"unknown task: {task}"}
+
+    dotlist = []
+    for key, raw in (overrides or {}).items():
+        if key not in FORM_FIELDS:
+            return {"ok": False, "error": f"unknown setting: {key}"}
+        if raw is None or raw == "":
+            continue
+        try:
+            dotlist.append(f"{key}={FORM_FIELDS[key](raw)}")
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"bad value for {key}: {raw!r}"}
+
+    examples = []
+    if dataset_text:
+        examples, reason = parse_dataset(dataset_text)
+        if reason:
+            return {"ok": False, "error": f"dataset: {reason}"}
+
+    try:
+        if freetext:
+            # Nothing from the form names a file: the task is built in memory,
+            # and any uploaded data is written inside the run's own directory.
+            cfg = load_config("", dotlist)
+            cfg.task.name = "custom"
+            cfg.task.seed_prompt = prompt.strip()
+        else:
+            cfg = load_config(task, dotlist)
+    except Exception as error:
+        return {"ok": False, "error": f"config: {error}"}
+
+    status = runstore.create_run(cfg.task.name, cfg)
+    if examples:
+        data_file = runstore.run_dir(status.run_id) / "dataset.jsonl"
+        data_file.write_text("".join(json.dumps(e) + "\n" for e in examples))
+        cfg.task.dataset = str(data_file)
+        runstore.write_config(status.run_id, cfg)
+    process = subprocess.Popen(
+        [sys.executable, "-u", "-m", "workflow_optimizer.dashboard.runner", status.run_id],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+        start_new_session=True,       # its own process group, so Stop takes the agent too
+    )
+    runstore.update_status(status.run_id, pid=process.pid)
+    return {"ok": True, "run_id": status.run_id}
+
+
+def compare_runs() -> dict:
+    """Gather every scored candidate across every run, for the comparison chart.
+
+    One point per candidate per run, so searches on the same benchmark — or on
+    different ones — can be read on the same accuracy/cost axes.
+
+    Returns:
+        `{"points": [...], "baselines": {task: {...}}}`. Each point carries the
+        run it came from, its task, the split its numbers are from, accuracy,
+        cost, whether it was on that run's frontier, and its description.
+    """
+    points, tasks = [], set()
+    for status in runstore.list_runs():
+        detail_events = runstore.read_events(status.run_id)
+        result = runstore.read_result(status.run_id) or {}
+        frontier = set(result.get("frontier", []))
+        seen = {}
+        for event in detail_events:
+            if event.get("event") == "candidate":
+                seen[event["name"]] = {"dev": (event["dev_accuracy"], event["dev_cost"]),
+                                       "description": event.get("description", "")}
+            elif event.get("event") == "test_scored" and event["name"] in seen:
+                seen[event["name"]]["test"] = (event["test_accuracy"], event["test_cost"])
+        for name, entry in seen.items():
+            split = "test" if "test" in entry else "dev"
+            accuracy, cost = entry.get("test") or entry["dev"]
+            points.append({"run_id": status.run_id, "task": status.task, "name": name,
+                           "split": split, "accuracy": accuracy, "cost": cost,
+                           "frontier": name in frontier,
+                           "description": entry.get("description", "")})
+        if seen:
+            tasks.add(status.task)
+
+    return {"points": points,
+            "baselines": {task: runstore.baselines_for(task) for task in sorted(tasks)}}
+
+
+def run_detail(run_id: str, log_lines: int = 400) -> dict:
+    """Assemble everything the detail pane shows for one run.
+
+    Args:
+        run_id: The run to describe.
+        log_lines: How many trailing log lines to include. The UI asks for more
+            when the reader opens the full log.
+
+    Returns:
+        Its status, milestones, candidates (merged from live events and the saved
+        result so a running search and a finished one render the same way), the
+        log tail, and the frontier. `{"error": "not_found"}` if unknown.
+    """
+    status = runstore.read_status(run_id)
+    if status is None:
+        return {"error": "not_found"}
+
+    events = runstore.read_events(run_id)
+    result = runstore.read_result(run_id)
+
+    # While running, candidates come from the event stream; once finished, the
+    # saved result carries the code and the test scores too.
+    candidates: dict[str, dict] = {}
+    for event in events:
+        if event.get("event") == "candidate":
+            candidates[event["name"]] = {
+                "name": event["name"], "description": event.get("description", ""),
+                "round": event.get("round"),
+                "dev": {"accuracy": event["dev_accuracy"], "cost_per_query": event["dev_cost"],
+                        "cached_input_frac": event.get("cached_input_frac", 0.0),
+                        "errors": event.get("errors", [])},
+                "test": None, "code": "",
+            }
+        elif event.get("event") == "test_scored" and event["name"] in candidates:
+            candidates[event["name"]]["test"] = {
+                "accuracy": event["test_accuracy"], "cost_per_query": event["test_cost"]}
+    for saved in (result or {}).get("candidates", []):
+        merged = candidates.setdefault(saved["name"], {"name": saved["name"]})
+        merged.update({k: saved[k] for k in ("description", "code") if k in saved})
+        for split in ("dev", "test"):
+            if saved.get(split):
+                merged[split] = saved[split]
+
+    analyzed = next((e for e in events if e.get("event") == "analyzed"), {})
+    return {
+        "status": _status_dict(status),
+        "analysis": {"check": analyzed.get("check", ""),
+                     "description": analyzed.get("description", ""),
+                     "judge_status": analyzed.get("judge_status", ""),
+                     "rubric": analyzed.get("rubric", ""),
+                     "answer_examples": analyzed.get("answer_examples", []),
+                     "dev_sample": analyzed.get("dev_sample", []),
+                     "test_sample": analyzed.get("test_sample", [])},
+        "candidates": list(candidates.values()),
+        "frontier": (result or {}).get("frontier", []),
+        "log": runstore.read_log(run_id, max_lines=log_lines),
+        "config": runstore.read_config_text(run_id),
+        "events": events,
+    }
+
+
+def _status_dict(status) -> dict:
+    """Render a RunStatus as JSON-safe fields.
+
+    Args:
+        status: The RunStatus to convert.
+
+    Returns:
+        Its fields as a plain dict.
+    """
+    return asdict(status)
+
+
+class Handler(BaseHTTPRequestHandler):
+    """Routes the UI's requests. One instance per request, as BaseHTTPRequestHandler wants."""
+
+    def _json(self, obj, code: int = 200) -> None:
+        """Send a JSON response.
+
+        Args:
+            obj: Any JSON-serializable object.
+            code: HTTP status code.
+        """
+        body = json.dumps(obj, default=str).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _html(self, html: str) -> None:
+        """Send an HTML response.
+
+        Args:
+            html: The page source.
+        """
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _body(self) -> dict:
+        """Read and parse the request's JSON body.
+
+        Returns:
+            The parsed object, or {} if the body is empty or malformed.
+        """
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}
+
+    def do_GET(self):
+        """Serve the page, the task list, the run list, or one run's detail."""
+        path = urlparse(self.path).path
+        try:
+            if path in ("/", "/index.html"):
+                if not STATIC_INDEX.exists():
+                    return self._html(f"<h1>500</h1><p>missing {STATIC_INDEX}</p>")
+                return self._html(STATIC_INDEX.read_text(encoding="utf-8"))
+            if path == "/api/tasks":
+                return self._json({"tasks": runstore.list_tasks(),
+                                   "benchmarks": runstore.list_benchmarks(),
+                                   "fields": sorted(FORM_FIELDS)})
+            if path == "/api/compare":
+                return self._json(compare_runs())
+            if path == "/api/runs":
+                return self._json({"runs": [_status_dict(s) for s in runstore.list_runs()]})
+            if path.startswith("/api/trace/"):
+                run_id = path[len("/api/trace/"):]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                params = parse_qs(urlparse(self.path).query)
+                name = (params.get("name") or [""])[0]
+                split = (params.get("split") or ["dev"])[0]
+                if split not in ("dev", "test"):
+                    return self._json({"error": "split must be dev or test"}, code=400)
+                trace = runstore.read_trace(run_id, name, split)
+                return self._json(trace or {"error": "no trace recorded"},
+                                  code=200 if trace else 404)
+            if path.startswith("/api/run/"):
+                run_id = path[len("/api/run/"):]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                params = parse_qs(urlparse(self.path).query)
+                lines = min(int((params.get("log_lines") or ["400"])[0] or 400), 20000)
+                detail = run_detail(run_id, log_lines=lines)
+                return self._json(detail, code=404 if detail.get("error") else 200)
+            self.send_error(404, "Not Found")
+        except Exception as error:
+            self._json({"error": str(error)}, code=500)
+
+    def do_POST(self):
+        """Start a search, or stop a running one."""
+        path = urlparse(self.path).path
+        try:
+            if path == "/api/runs":
+                body = self._body()
+                result = start_run(body.get("task", ""), body.get("overrides", {}),
+                                   prompt=body.get("prompt", ""),
+                                   dataset_text=body.get("dataset", ""))
+                return self._json(result, code=200 if result.get("ok") else 400)
+            if path.startswith("/api/run/") and path.endswith("/stop"):
+                run_id = path[len("/api/run/"):-len("/stop")]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                result = runstore.stop_run(run_id)
+                return self._json(result, code=200 if result.get("ok") else 400)
+            self.send_error(404, "Not Found")
+        except Exception as error:
+            self._json({"error": str(error)}, code=500)
+
+    def log_message(self, fmt, *args):
+        """Silence the default per-request logging."""
+
+
+def main() -> None:
+    """Serve the UI until interrupted."""
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--port", type=int, default=8770)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--open", action="store_true", help="open a browser on start")
+    args = parser.parse_args()
+
+    # Reap finished searches automatically. Without this a completed run stays in
+    # the process table as a zombie, which still answers `kill(pid, 0)` — so the
+    # run list would report a finished run as still running. The server never
+    # calls wait() itself, so nothing here depends on collecting exit statuses.
+    if hasattr(signal, "SIGCHLD"):
+        signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+
+    runstore.RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    url = f"http://{args.host}:{args.port}"
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    print(f"workflow-optimizer UI → {url}")
+    print("Starting a search spends real money. Ctrl-C to stop the server.")
+    if args.open:
+        webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

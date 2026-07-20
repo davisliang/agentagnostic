@@ -1,0 +1,20 @@
+# nq_open_gen — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: nq_open_gen
+description: >-
+  Answer an open-domain Natural Questions query. The answer is a short factual span; several phrasings are accepted.
+source_dataset: google-research-datasets/nq_open
+num_fewshot: 0
+examples: 200
+sampled_from: 200
+routerllm_grader: contains
+grading_supported: true
+check_type: exact
+grader: benchmarks/_graders/contains.py
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 347
+  haiku: 0.4092
+  opus: 0.5043
+  router: 0.4726
+  oracle: 0.562

@@ -1,0 +1,19 @@
+# simpleqa — imported from routerllm by scripts/import_routerllm_benchmarks.py
+name: simpleqa
+description: >-
+  Answer a SimpleQA short-form factual question. The answer is a brief fact — a name, date, or number — correct if it matches the reference.
+source_dataset: google/simpleqa-verified
+num_fewshot: 0
+examples: 200
+sampled_from: 200
+routerllm_grader: judge
+grading_supported: true
+check_type: llm_judge
+# routerllm's holdout numbers, recomputed from joined_14.jsonl.
+# Comparable only if graded the same way — see grading_note.
+baselines:
+  n: 94
+  haiku: 0.0638
+  opus: 0.3191
+  router: 0.3191
+  oracle: 0.3191
