@@ -165,6 +165,7 @@ let view = "runs", newMode = "benchmark", uploaded = null, benchmarks = [];
 let compareTask = "", comparePoints = [];
 let answersSplit = "", answersData = null;   // side-by-side answers, "" = closed
 let frontierPoints = [], hoveringChart = false;   // hovering pauses the refresh
+let chartSplit = "test";   // which split the run-detail chart shows
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const usd = n => n == null ? "—" : "$" + Number(n).toFixed(5);
@@ -468,17 +469,29 @@ async function loadDetail() {
       <div class="desc">${esc(d.analysis.description)}</div></div>`);
   }
 
-  // A run that was stopped or failed never reaches test scoring. Plot its dev
-  // numbers rather than showing nothing — the work was done and paid for.
-  const onTest = cands.filter(c => c.test);
-  const plotted = onTest.length ? onTest : cands.filter(c => c.dev);
-  if (plotted.length) {
-    const split = onTest.length ? "test" : "dev";
-    parts.push(`<h2>accuracy vs cost (${split})</h2>` +
-      (onTest.length ? "" : `<div class="desc">This run has no held-out test scores —
-         it did not reach the ranking step. These are dev scores, which the search
-         itself tuned against.</div>`) +
-      frontierSvg(plotted, d.frontier || [], split));
+  // The chart shows ONE split at a time, toggleable. Dev has every candidate,
+  // since all are dev-scored; test has only the finalists, since dominated
+  // candidates are never re-run on test. Switch to dev to see all the points.
+  const devPts = cands.filter(c => c.dev);
+  const testPts = cands.filter(c => c.test);
+  let split = chartSplit;
+  if (split === "test" && !testPts.length) split = "dev";     // nothing on test to show
+  const pts = split === "test" ? testPts : devPts;
+  if (pts.length) {
+    const tab = (s, label, on) =>
+      `<span class="tab ${split === s ? "on" : ""}" style="float:right;text-transform:none;
+         margin-left:6px${on ? "" : ";opacity:.4;pointer-events:none"}"
+         onclick="setChartSplit('${s}')">${label}</span>`;
+    const caption = split === "test"
+      ? `<div class="desc">Held-out test scores. Only frontier candidates are re-run on
+         test — switch to <b>dev</b> to see every candidate the search tried.</div>`
+      : `<div class="desc">Every candidate, scored on dev — the split the search tuned
+         against, so read as optimistic.${testPts.length
+           ? " Switch to <b>test</b> for held-out numbers on the frontier." : ""}</div>`;
+    parts.push(`<h2>accuracy vs cost`
+      + tab("dev", `dev · all ${devPts.length}`, true)
+      + tab("test", "test", testPts.length > 0)
+      + `</h2>` + caption + frontierSvg(pts, split));
   }
 
   if (cands.length) {
@@ -568,6 +581,8 @@ function revealSelected() {
     if (row) row.scrollIntoView({behavior: "smooth", block: "center"});
   }
 }
+
+function setChartSplit(s) { chartSplit = s; loadDetail(); }
 
 function stat(lbl, val) {
   return `<div class="card"><div class="lbl">${lbl}</div><div class="stat">${val}</div></div>`;
@@ -725,9 +740,23 @@ function timelineHtml(events) {
 }
 
 // ---- frontier plot (inline SVG, no libraries) --------------------------------
-function frontierSvg(cands, frontierNames, split) {
-  split = split || "test";
+// The non-dominated candidates on a given split — computed here so the frontier
+// line is correct for whichever split is shown, not only for the saved test one.
+function paretoNames(cands, at) {
+  const names = new Set();
+  for (const c of cands) {
+    const m = at(c);
+    const dominated = cands.some(o => o !== c
+      && at(o).cost_per_query <= m.cost_per_query && at(o).accuracy >= m.accuracy
+      && (at(o).cost_per_query < m.cost_per_query || at(o).accuracy > m.accuracy));
+    if (!dominated) names.add(c.name);
+  }
+  return names;
+}
+
+function frontierSvg(cands, split) {
   const at = c => c[split];
+  const frontierNames = paretoNames(cands, at);
   // Room on the right for labels, which sit beside their point rather than in a
   // legend — a legend makes you match colours back to rows, and only ever listed
   // the frontier.
@@ -742,7 +771,7 @@ function frontierSvg(cands, frontierNames, split) {
   const x = c => P.l + (cHi === cLo ? .5 : (c - cLo) / (cHi - cLo)) * (W - P.l - P.r);
   const y = a => H - P.b - (aHi === aLo ? .5 : (a - aLo) / (aHi - aLo)) * (H - P.t - P.b);
 
-  const front = cands.filter(c => frontierNames.includes(c.name))
+  const front = cands.filter(c => frontierNames.has(c.name))
                      .sort((p, q) => at(p).cost_per_query - at(q).cost_per_query);
   const line = front.map((c, i) =>
     `${i ? "L" : "M"}${x(at(c).cost_per_query).toFixed(1)},${y(at(c).accuracy).toFixed(1)}`).join(" ");
@@ -760,7 +789,7 @@ function frontierSvg(cands, frontierNames, split) {
   const placed = [];
   const marks = cands.map((c, i) => {
     const px = x(at(c).cost_per_query), py = y(at(c).accuracy);
-    const on = frontierNames.includes(c.name);
+    const on = frontierNames.has(c.name);
     let ly = py + 3;
     while (placed.some(v => Math.abs(v - ly) < 11)) ly += 11;
     placed.push(ly);
