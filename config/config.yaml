@@ -1,0 +1,80 @@
+# Defaults for every run. Override a field on the command line with a dotted path
+# (`workflow-optimizer --task gsm8k designer.rounds=1 runtime.concurrency=4`), or
+# from a task file under config/task/.
+
+# The models the optimizer may use, cheapest -> most expensive. This list is the
+# search pool, the routing menu a workflow sees, AND the price table cost is
+# measured with, so nothing can drift out of sync.
+#   price_in / price_out : USD per 1,000,000 tokens
+#   thinks               : supports the effort / adaptive-thinking params
+models:
+  - id: claude-haiku-4-5
+    price_in: 1.0
+    price_out: 5.0
+    thinks: false
+  - id: claude-sonnet-5
+    price_in: 3.0
+    price_out: 15.0
+    thinks: true
+  - id: claude-opus-4-8
+    price_in: 5.0
+    price_out: 25.0
+    thinks: true
+
+# The model that analyzes the task and generates the dataset.
+analysis_model: claude-opus-4-8
+
+# One model call.
+call:
+  # One output ceiling for every call, set high enough to never be the reason an
+  # answer is short. NOT a cost knob — you pay for the tokens a reply actually
+  # uses. It has to be generous because THINKING COUNTS AGAINST IT: at
+  # effort="max" a 16k ceiling was measured burning the whole budget on thinking
+  # and returning an empty answer.
+  max_output_tokens: 64000
+  # Cap on API calls while a server-side tool keeps pausing the turn.
+  max_tool_turns: 5
+  # Prompt-cache multipliers on the input rate: a write costs a bit more once,
+  # a read is ~90% off.
+  cache_write_multiplier: 1.25
+  cache_read_multiplier: 0.10
+
+# The per-query budget a candidate workflow runs under. (Candidates always run
+# with a restricted import list — see compile_solve in
+# src/workflow_optimizer/runtime.py.)
+runtime:
+  max_model_calls: 24      # model calls one query may make
+  max_tokens: 120000       # tokens one query may spend
+  concurrency: 8           # examples scored at once (API latency dominates)
+
+# Grading free-form answers (check_type: llm_judge).
+judge:
+  model: claude-haiku-4-5
+  # The bar a task-specific rubric must clear to be used at all: scored under it
+  # an ideal answer must reach min_gold_score, an empty answer must stay under
+  # max_empty_score. A rubric failing either is dropped for the generic judge.
+  min_gold_score: 0.7
+  max_empty_score: 0.5
+
+# Generating a dataset when the task supplies none.
+data:
+  n_examples: 100
+  dev_fraction: 0.6        # dev guides the search; the rest is held-out test
+  n_case_types: 15         # kinds of case planned up front, to spread batches over
+  batch_size: 20           # examples per generation call (one giant call truncates)
+  free_form_batch_size: 5  # free-form answers are long, so smaller batches
+  max_stalls: 3            # give up after this many batches add nothing new
+
+# The design agent.
+designer:
+  model: claude-opus-4-8
+  rounds: 3                # design rounds; each one costs real money
+  dev_sample_size: 5       # dev examples the agent may self-test against
+  skills: [workflow-design, workflow-eval, workflow-naming]
+  allowed_tools: [WebSearch, WebFetch, Bash, Read, Write, Skill]
+
+# The two convenience picks, and where results land.
+report:
+  max_cost_per_query: 0.002  # "the best workflow I can afford"
+  min_accuracy: 0.80         # "the cheapest workflow that is good enough"
+  output_dir: runs

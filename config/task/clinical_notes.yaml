@@ -1,0 +1,9 @@
+# A task is a plain-English description and, optionally, your own data.
+# Everything else — answer format, grader, dataset — is inferred from it.
+task:
+  name: clinical_notes
+  seed_prompt: >-
+    Build a system that generates clinical notes for a given doctor-patient
+    conversation.
+  # dataset: path/to/examples.jsonl   # {"question": ..., "answer": ...} per line
+  # grader: path/to/grader.py         # grade(prediction, item) -> float in [0, 1]
