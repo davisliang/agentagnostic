@@ -426,3 +426,79 @@ def test_the_designer_is_told_the_cost_target():
         test=[{"question": "q", "answer": "1"}])
     prompt = _round_prompt(cfg, benchmark, 1, "")
     assert "0.00400" in prompt and "Cost target" in prompt
+
+
+# ---- probing beats guessing --------------------------------------------------
+class ProbeClient:
+    """A client that reports fixed token usage, so probe maths can be checked."""
+
+    def __init__(self, catalog, input_tokens=1000, output_tokens=500, answer="x"):
+        self.catalog = catalog
+        self.usage = {"input": input_tokens, "output": output_tokens,
+                      "cache_write": 0, "cache_read": 0}
+        self.answer = answer
+        self.calls = 0
+
+    def call(self, model, prompt, system=None, tools=None, effort=None, schema=None):
+        from workflow_optimizer.client import ApiResponse
+        self.calls += 1
+        return ApiResponse(text=json.dumps({"answer": self.answer}), usage=dict(self.usage))
+
+
+def test_a_probe_measures_tokens_and_whether_the_cheap_model_can_do_it():
+    from workflow_optimizer.grading import Grader
+    from workflow_optimizer.models import ModelCatalog
+
+    cfg = load_config("gsm8k")
+    catalog = ModelCatalog.from_config(cfg)
+    data = [{"question": "q1", "answer": "x"}, {"question": "q2", "answer": "x"},
+            {"question": "q3", "answer": "no"}]
+
+    probe = costs.run_probe(cfg, ProbeClient(catalog), Grader(kind="exact"), data, n=3)
+    assert probe.n == 3
+    assert probe.input_tokens == 1000 and probe.output_tokens == 500
+    assert probe.accuracy == pytest.approx(2 / 3)     # two of three golds are "x"
+    assert probe.cost > 0
+
+
+def test_a_probe_that_cannot_reach_the_api_degrades_instead_of_breaking():
+    from workflow_optimizer.grading import Grader
+    from workflow_optimizer.models import ModelCatalog
+
+    class Broken(ProbeClient):
+        def call(self, *a, **k):
+            raise RuntimeError("overloaded")
+
+    cfg = load_config("gsm8k")
+    probe = costs.run_probe(cfg, Broken(ModelCatalog.from_config(cfg)), Grader(kind="exact"),
+                            [{"question": "q", "answer": "a"}], n=3)
+    assert probe.n == 0          # the caller falls back to defaults rather than failing
+
+
+def test_a_failing_cheap_model_predicts_an_expensive_search():
+    """The probe's real job: if the cheap tier scores ~0 the designer escalates,
+    which is why ARC cost ~60x its own baseline while ifeval stayed cheap."""
+    from workflow_optimizer.models import ModelCatalog
+
+    catalog = ModelCatalog.from_config(load_config("gsm8k"))
+    same_tokens = dict(input_tokens=5000, output_tokens=1000, output_tokens_high=1000, n=3)
+    hopeless = costs.Probe(accuracy=0.0, **same_tokens)
+    capable = costs.Probe(accuracy=0.9, **same_tokens)
+
+    _, expensive, _, why_expensive = costs.per_query_from_probe(catalog, hopeless)
+    _, cheap, _, why_cheap = costs.per_query_from_probe(catalog, capable)
+
+    assert expensive > cheap * 10          # same tokens, wildly different forecast
+    assert "escalate" in why_expensive and "cheap workflows are viable" in why_cheap
+
+
+def test_a_probe_overrides_history_and_says_so():
+    cfg = load_config("gsm8k", ["data.n_examples=40"])
+    history = {"tasks": {"gsm8k": {"cost_per_query": 0.5}}, "pooled": {}, "n_runs": 9}
+    probe = costs.Probe(input_tokens=100, output_tokens=50, output_tokens_high=50,
+                        accuracy=1.0, n=3, model="claude-haiku-4-5")
+
+    with_probe = costs.estimate(cfg, history, probe=probe)
+    without = costs.estimate(cfg, history)
+    assert with_probe.expected < without.expected      # the probe says it is cheap
+    assert any("derived from that probe" in a for a in with_probe.assumptions)

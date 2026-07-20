@@ -123,7 +123,7 @@ def observed(runs: list) -> dict:
 
 
 def estimate(cfg, history: dict = None, generates_data: bool = None,
-             judged: bool = None) -> Estimate:
+             judged: bool = None, probe: "Probe" = None) -> Estimate:
     """Estimate the cost of running a search with this config.
 
     Args:
@@ -135,6 +135,9 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
         judged: Whether grading calls a model per answer. Inferred from
             `cfg.task.check_type` when omitted; unknowable before analysis for a
             free-text task, where it is assumed False and said so.
+        probe: A `run_probe` measurement. When given it replaces both history and
+            defaults for cost per query — it is the only input measured on THIS
+            task, right now, and it needs no prior runs to exist.
 
     Returns:
         An Estimate. Its `assumptions` list is the point: every figure it used,
@@ -203,9 +206,22 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
     # 3. scoring every candidate on dev
     candidates = figure("candidates_per_round", DEFAULT_CANDIDATES_PER_ROUND,
                         lambda v: f"{v:.1f} candidates per round")
-    per_query = figure("cost_per_query", DEFAULT_COST_PER_QUERY,
-                       lambda v: f"${v:.5f} per query for a typical workflow",
-                       transfers=False)
+    probe_range = None
+    if probe is not None and probe.n:
+        from .models import ModelCatalog
+        catalog = ModelCatalog.from_config(cfg)
+        probe_low, per_query, probe_high, why = per_query_from_probe(catalog, probe)
+        probe_range = (probe_low, probe_high)
+        notes.append(f"probed {probe.n} example(s) on {probe.model}: "
+                     f"{probe.input_tokens:.0f} input / {probe.output_tokens:.0f} output "
+                     f"tokens per call, costing ${probe.cost:.4f} to measure")
+        notes.append(why)
+        notes.append(f"${per_query:.5f} per query for a typical workflow — derived from "
+                     f"that probe, not from past runs")
+    else:
+        per_query = figure("cost_per_query", DEFAULT_COST_PER_QUERY,
+                           lambda v: f"${v:.5f} per query for a typical workflow",
+                           transfers=False)
     total_candidates = candidates * rounds
     breakdown["score on dev"] = total_candidates * dev * per_query
     notes.append(f"dev split {dev} of {n_examples} examples "
@@ -235,7 +251,13 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
     # a made-up factor: the cheapest and dearest workflow actually seen bound the
     # query-cost term far better than a guess does.
     scored_queries = total_candidates * dev + finalists * test
-    if "cost_per_query_low" in mine and per_query > 0:
+    if probe_range:
+        fixed = expected - scored_queries * per_query
+        low = fixed + scored_queries * probe_range[0]
+        high = fixed + scored_queries * probe_range[1]
+        notes.append(f"range spans the cheapest and dearest workflow the probe implies: "
+                     f"${probe_range[0]:.5f} to ${probe_range[1]:.5f} per query")
+    elif "cost_per_query_low" in mine and per_query > 0:
         fixed = expected - scored_queries * per_query
         low = fixed + scored_queries * mine["cost_per_query_low"]
         high = fixed + scored_queries * mine["cost_per_query_high"]
@@ -250,3 +272,153 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
     return Estimate(low=max(0.0, low), expected=expected, high=high,
                     breakdown={k: round(v, 4) for k, v in breakdown.items()},
                     assumptions=notes, based_on_runs=history.get("n_runs", 0))
+
+
+# A probe measures one cheap call on real examples. Turning that into a range for
+# what the DESIGNER will build needs assumptions about shape, which are documented
+# here rather than buried:
+# Calibrated against two measured searches — ifeval (cheap regime) and ARC
+# (escalated). Two anchors is thin, so these are multipliers on a MEASURED
+# baseline rather than absolute guesses, which is what keeps the error bounded
+# when a new task looks like neither.
+#   ifeval: probe call $0.0022, search ran $0.0013-$0.0285, median $0.0018
+#   ARC:    probe call $0.0171, search ran $0.0123-$1.5239, median $0.7372
+CHEAP_CALLS_TYPICAL = 1.5     # the cheap model works: a call, sometimes a check
+CHEAP_CALLS_HIGH = 5.0        # ...or a five-sample vote on the middle model
+ESCALATED_CALLS_TYPICAL = 4.0   # it doesn't: draft, verify, revise, on the big model
+ESCALATED_CALLS_HIGH = 8.0
+# Real workflows write shorter answers than the probe's schema-constrained one,
+# so the cheapest candidate lands below a single probe call.
+LOW_CALL_FRACTION = 0.6
+EFFORT_OUTPUT_MULTIPLIER = 3.0   # thinking tokens count against output
+# Below this, the cheap model cannot do the task, so the designer escalates and
+# nearly every candidate ends up on an expensive model. Measured on ARC: Haiku
+# scored 0.00 and the search ran ~60x the baseline cost. Above it, cheap
+# workflows survive and cost stays near the baseline.
+ESCALATION_ACCURACY = 0.35
+
+
+@dataclass
+class Probe:
+    """One cheap call on real examples, measured.
+
+    Attributes:
+        input_tokens: Median input tokens for a single call on this task.
+        output_tokens: Median output tokens.
+        output_tokens_high: The largest output seen. On an open-ended task the
+            same prompt can produce 89 tokens or 2118 depending on whether the
+            model tries or gives up, and that spread drives the cost — so the
+            high bound uses this rather than the median.
+        accuracy: How the cheapest model scored answering directly. Low means the
+            designer will escalate, which is what makes a task expensive.
+        cost: What the probe itself actually spent, USD.
+        n: How many examples were probed.
+        model: The model the probe ran on.
+    """
+    input_tokens: float = 0.0
+    output_tokens: float = 0.0
+    output_tokens_high: float = 0.0
+    accuracy: float = 0.0
+    cost: float = 0.0
+    n: int = 0
+    model: str = ""
+
+
+def run_probe(cfg, client, grader, examples: list, n: int = 5) -> Probe:
+    """Measure one direct call on this task, to anchor an estimate in fact.
+
+    Costs a few cents and takes seconds. Nothing about the task is assumed: the
+    prompts are real, so the token counts are this task's, and the answers are
+    graded, so the accuracy says whether the cheap tier can do the work.
+
+    Args:
+        cfg: The run config.
+        client: A ModelClient.
+        grader: The task's grader, used to score the probe's answers.
+        examples: Real examples to probe with.
+        n: How many to run.
+
+    Returns:
+        A Probe. `n` is 0 if there were no examples to run.
+    """
+    from .runtime import ANSWER_SCHEMA
+
+    chosen = examples[:n]
+    if not chosen:
+        return Probe()
+
+    model = client.catalog.default
+    inputs, outputs, scores, spent = [], [], [], 0.0
+    for item in chosen:
+        # A probe is a courtesy, not the job. An overloaded API or a refusal must
+        # not take down the estimate — fewer samples, or none, is the right
+        # failure, and the caller falls back to defaults when n is 0.
+        try:
+            response = client.call(model, item["question"], schema=ANSWER_SCHEMA)
+        except Exception:
+            continue
+        usage = response.usage
+        inputs.append(usage["input"] + usage["cache_read"] + usage["cache_write"])
+        outputs.append(usage["output"])
+        spent += client.catalog.cost_usd(model, usage)
+        try:
+            import json as _json
+            answer = _json.loads(response.text).get("answer", response.text)
+        except ValueError:
+            answer = response.text
+        try:
+            scores.append(grader.score(str(answer), item))
+        except Exception:
+            scores.append(0.0)
+
+    if not inputs:
+        return Probe(model=model)
+    return Probe(input_tokens=median(inputs), output_tokens=median(outputs),
+                 output_tokens_high=max(outputs),
+                 accuracy=sum(scores) / len(scores), cost=spent,
+                 n=len(inputs), model=model)
+
+
+def per_query_from_probe(catalog, probe: Probe) -> tuple[float, float, float, str]:
+    """Price a typical designed workflow from a probe, for every model tier.
+
+    The probe measures one call on the cheap model. What the search actually
+    builds is some number of calls, possibly on a bigger model, possibly
+    thinking. Those token counts are the task's; the price table does the rest,
+    so no further API calls are needed to price the expensive tiers.
+
+    Args:
+        catalog: The ModelCatalog, for prices.
+        probe: The measurement.
+
+    Returns:
+        `(low, expected, high, reasoning)` — dollars per query, plus a sentence
+        explaining which regime was assumed and why.
+    """
+    def call_cost(model_id: str, thinking: bool = False, worst: bool = False) -> float:
+        spec = catalog.spec(model_id)
+        base = probe.output_tokens_high if worst else probe.output_tokens
+        output = base * (EFFORT_OUTPUT_MULTIPLIER if thinking else 1.0)
+        return (probe.input_tokens * spec.price_in + output * spec.price_out) / 1_000_000
+
+    ids = catalog.ids
+    cheapest, dearest = ids[0], ids[-1]
+    middle = ids[len(ids) // 2]
+
+    low = LOW_CALL_FRACTION * call_cost(cheapest)
+
+    spread = (probe.output_tokens_high / probe.output_tokens) if probe.output_tokens else 1.0
+    if probe.accuracy < ESCALATION_ACCURACY:
+        expected = ESCALATED_CALLS_TYPICAL * call_cost(dearest, thinking=True)
+        high = ESCALATED_CALLS_HIGH * call_cost(dearest, thinking=True, worst=True)
+        why = (f"the cheap model scored {probe.accuracy:.2f} on the probe, below "
+               f"{ESCALATION_ACCURACY} — it cannot do this task, so the designer will "
+               f"escalate and most candidates will run on {dearest} with thinking on"
+               + (f". Reply length varied {spread:.0f}x across the probe, so the upper "
+                  f"bound is wide" if spread > 3 else ""))
+    else:
+        expected = CHEAP_CALLS_TYPICAL * call_cost(cheapest)
+        high = CHEAP_CALLS_HIGH * call_cost(middle, worst=True)
+        why = (f"the cheap model scored {probe.accuracy:.2f} on the probe, so cheap "
+               f"workflows are viable and most candidates should stay on {cheapest}")
+    return low, expected, high, why

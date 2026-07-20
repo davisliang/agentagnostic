@@ -286,6 +286,24 @@ async function loadEstimate() {
     .sort((a, b) => b[1] - a[1])
     .map(([k, v]) => `<div class="ln"><span>${esc(k)}</span><span>$${v.toFixed(2)}</span></div>`)
     .join("");
+  renderEstimate(e);
+}
+
+function renderEstimate(e) {
+  const box = document.getElementById("f-cost");
+  if (!box) return;
+  const rows = Object.entries(e.breakdown)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<div class="ln"><span>${esc(k)}</span><span>$${v.toFixed(2)}</span></div>`)
+    .join("");
+  const p = e.probe;
+  const probeLine = !p ? `<button type="button" onclick="runProbe()" id="probe-btn"
+        style="margin-top:6px;font-size:11px">measure this task (~$0.03, a few seconds)</button>`
+    : p.skipped ? `<div class="note">${esc(p.skipped)}</div>`
+    : `<div style="color:#86efac;margin-top:4px">measured: ${p.n} call(s) on
+        ${esc(p.model)} — ${p.input_tokens.toFixed(0)} in / ${p.output_tokens.toFixed(0)} out
+        tokens, cheap-model accuracy ${acc(p.accuracy)} (probe cost $${p.cost.toFixed(4)})</div>`;
+
   box.innerHTML = `
     <div class="big">≈ $${e.expected.toFixed(2)}
       <span class="rng">$${e.low.toFixed(2)} – $${e.high.toFixed(2)}</span></div>
@@ -294,10 +312,34 @@ async function loadEstimate() {
         ? ` · ${e.based_on_runs} past run(s) measured` : " · nothing measured yet"}</summary>
       <div class="inner"><ul style="margin:6px 0 0 14px;padding:0;color:#8b95a7">` +
       e.assumptions.map(a => `<li>${esc(a)}</li>`).join("") + `</ul></div></details>
-    <div class="note">A real estimate, not a cap. The design agent is the least
-      predictable part; the range is wide on purpose. Budget $/query steers which
-      workflow is recommended, not what the search spends — the levers above are
-      rounds and examples.</div>`;
+    ${probeLine}
+    <div class="note">A real estimate, not a cap. Budget $/query steers which
+      workflow is recommended, not what the search spends — the levers are rounds
+      and examples.</div>`;
+}
+
+// Measuring beats guessing: a few real calls pin this task's token scale and
+// whether the cheap model can do it at all, which is what actually drives cost.
+async function runProbe() {
+  const btn = document.getElementById("probe-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "measuring…"; }
+  const overrides = {};
+  for (const [id, key] of [["f-rounds", "designer.rounds"], ["f-examples", "data.n_examples"],
+                           ["f-concurrency", "runtime.concurrency"],
+                           ["f-budget", "report.max_cost_per_query"]]) {
+    const el = document.getElementById(id);
+    if (el && el.value !== "") overrides[key] = el.value;
+  }
+  const sel = document.getElementById("f-task");
+  const e = await (await fetch("/api/probe", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({task: sel ? sel.value : "", overrides}),
+  })).json();
+  if (e.error) {
+    document.getElementById("f-cost").innerHTML = `<span class="err">${esc(e.error)}</span>`;
+    return;
+  }
+  renderEstimate(e);
 }
 
 function readUpload(ev) {

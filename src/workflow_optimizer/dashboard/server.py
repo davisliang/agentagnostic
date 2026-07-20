@@ -233,6 +233,60 @@ def estimate_cost(task: str, overrides: dict, freetext: bool = False,
             "based_on_runs": guess.based_on_runs}
 
 
+def probe_and_estimate(task: str, overrides: dict) -> dict:
+    """Measure this task with a few real calls, then estimate from that.
+
+    Costs a few cents and takes seconds. Unlike history, it works on a task
+    nobody has ever run, and it measures the two things that actually drive cost:
+    how many tokens a call on this task takes, and whether the cheap model can do
+    the work at all.
+
+    Args:
+        task: A task config name. Free-text tasks cannot be probed — there are no
+            examples until the dataset is generated.
+        overrides: The form's settings.
+
+    Returns:
+        The estimate, with a "probe" block describing the measurement, or
+        `{"error": ...}`.
+    """
+    from .. import analysis
+    from ..session import Session
+
+    base = estimate_cost(task, overrides)
+    if base.get("error"):
+        return base
+
+    dotlist = [f"{k}={FORM_FIELDS[k](v)}" for k, v in (overrides or {}).items()
+               if k in FORM_FIELDS and v not in (None, "")]
+    cfg = load_config(task, dotlist)
+    if not cfg.task.dataset:
+        return {**base, "probe": {"skipped": "this task generates its own examples, "
+                                  "so there is nothing to probe until it runs"}}
+
+    session = Session.from_config(cfg)
+    try:
+        benchmark = analysis.build_benchmark(cfg, session.client, log=lambda *a: None)
+    except Exception as error:
+        return {"error": f"could not load the task: {error}"}
+
+    measured = costs.run_probe(cfg, session.client, benchmark.grader, benchmark.dev, n=3)
+    if not measured.n:
+        return {**base, "probe": {"skipped": "every probe call failed — the API may be "
+                                  "busy; the estimate below is from defaults"}}
+
+    history = costs.observed([(s.task, runstore.read_events(s.run_id))
+                              for s in runstore.list_runs()])
+    guess = costs.estimate(cfg, history, generates_data=False, probe=measured)
+    return {"low": guess.low, "expected": guess.expected, "high": guess.high,
+            "breakdown": guess.breakdown, "assumptions": guess.assumptions,
+            "based_on_runs": guess.based_on_runs,
+            "probe": {"n": measured.n, "model": measured.model,
+                      "input_tokens": measured.input_tokens,
+                      "output_tokens": measured.output_tokens,
+                      "accuracy": measured.accuracy, "cost": measured.cost}}
+
+
 def run_detail(run_id: str, log_lines: int = 400) -> dict:
     """Assemble everything the detail pane shows for one run.
 
@@ -404,6 +458,10 @@ class Handler(BaseHTTPRequestHandler):
         """Start a search, or stop a running one."""
         path = urlparse(self.path).path
         try:
+            if path == "/api/probe":
+                body = self._body()
+                return self._json(probe_and_estimate(body.get("task", ""),
+                                                     body.get("overrides", {})))
             if path == "/api/runs":
                 body = self._body()
                 result = start_run(body.get("task", ""), body.get("overrides", {}),

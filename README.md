@@ -30,6 +30,13 @@ report.summarize(search, session.cfg)
 `uv run workflow-optimizer-ui` serves a page on `127.0.0.1:8770` that starts
 searches, watches them run, and compares what they found:
 
+- **Cost estimate before you commit** — the form estimates what a search will
+  cost, broken down and with every assumption listed. **Measure this task** runs
+  a few real calls (a few cents, seconds) and estimates from that instead: it
+  pins this task's token scale and, by grading its own answers, whether the cheap
+  model can do the work at all — which is what decides whether the designer
+  escalates. Calibrated against two measured searches; ARC predicts within 4% of
+  what it actually cost, ifeval within 2x.
 - **New search** — either pick a **benchmark** (the 14 routerllm holdout tasks
   plus ARC-AGI-2, with their example counts, graders and recorded baselines), or
   **describe a task** in free text and optionally upload your own `.jsonl`.
