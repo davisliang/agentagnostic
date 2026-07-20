@@ -60,42 +60,66 @@ class Estimate:
 
 
 def observed(runs: list) -> dict:
-    """Measure what past runs on this machine actually cost.
+    """Measure what past runs on this machine actually cost, per task.
+
+    Cost per query is a property of the TASK, not of the machine: one measured
+    ARC workflow cost $1.52 a query while an ifeval one cost $0.0013 — a factor
+    of a thousand. Pooling those into a single median makes both estimates
+    meaningless, so figures are kept per task and only fall back to the pool
+    when a task has no history of its own.
 
     Args:
-        runs: Per-run event lists, as `runstore.read_events` returns them.
+        runs: `(task, events)` pairs, events as `runstore.read_events` returns.
 
     Returns:
-        Medians for the figures the estimator needs — `agent_cost_per_round`,
-        `candidates_per_round`, `cost_per_query` — omitting any the runs don't
-        evidence, plus `n_runs` counting the runs that contributed anything.
+        `{"tasks": {task: figures}, "pooled": figures, "n_runs": n}`. Each
+        `figures` holds whichever of `agent_cost_per_round`,
+        `candidates_per_round`, `cost_per_query`, `cost_per_query_low` and
+        `cost_per_query_high` the runs evidence.
     """
-    agent_costs, per_round, query_costs, contributing = [], [], [], 0
-    for events in runs:
+    by_task: dict[str, dict] = {}
+    contributing = 0
+
+    for task, events in runs:
+        bucket = by_task.setdefault(task, {"agent": [], "per_round": [], "query": []})
         rounds, candidates, saw = set(), 0, False
         for event in events:
             kind = event.get("event")
             if kind == "agent_cost":
-                agent_costs.append(event["usd"])
+                bucket["agent"].append(event["usd"])
                 saw = True
             elif kind == "round_start":
                 rounds.add(event["round"])
             elif kind == "candidate":
                 candidates += 1
-                query_costs.append(event["dev_cost"])
+                bucket["query"].append(event["dev_cost"])
                 saw = True
         if rounds and candidates:
-            per_round.append(candidates / len(rounds))
+            bucket["per_round"].append(candidates / len(rounds))
         contributing += 1 if saw else 0
 
-    measured = {"n_runs": contributing}
-    if agent_costs:
-        measured["agent_cost_per_round"] = median(agent_costs)
-    if per_round:
-        measured["candidates_per_round"] = median(per_round)
-    if query_costs:
-        measured["cost_per_query"] = median(query_costs)
-    return measured
+    def figures(bucket: dict) -> dict:
+        """Reduce one bucket of raw observations to the figures the estimator uses."""
+        out = {}
+        if bucket["agent"]:
+            out["agent_cost_per_round"] = median(bucket["agent"])
+        if bucket["per_round"]:
+            out["candidates_per_round"] = median(bucket["per_round"])
+        if bucket["query"]:
+            out["cost_per_query"] = median(bucket["query"])
+            # The spread within a task is the real uncertainty: the designer will
+            # try both a single cheap call and a five-sample vote.
+            out["cost_per_query_low"] = min(bucket["query"])
+            out["cost_per_query_high"] = max(bucket["query"])
+        return out
+
+    pooled = {"agent": [], "per_round": [], "query": []}
+    for bucket in by_task.values():
+        for key in pooled:
+            pooled[key].extend(bucket[key])
+
+    return {"tasks": {task: figures(b) for task, b in by_task.items()},
+            "pooled": figures(pooled), "n_runs": contributing}
 
 
 def estimate(cfg, history: dict = None, generates_data: bool = None,
@@ -118,14 +142,37 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
     """
     history = history or {}
     notes, breakdown = [], {}
+    task_name = cfg.task.name
+    mine = (history.get("tasks") or {}).get(task_name, {})
+    pooled = history.get("pooled") or {}
 
-    def figure(key, fallback, describe):
-        """Take a measured value if there is one, else the default, and say which."""
-        if key in history:
-            notes.append(f"{describe(history[key])} — measured over "
-                         f"{history.get('n_runs', 0)} past run(s)")
-            return history[key]
-        notes.append(f"{describe(fallback)} — default, nothing measured yet")
+    def figure(key, fallback, describe, transfers=True):
+        """Take the most specific measurement available, and say which it was.
+
+        Args:
+            key: Which figure to look up.
+            fallback: The documented default.
+            describe: Renders the chosen value as a human-readable clause.
+            transfers: Whether a measurement from OTHER tasks is evidence for
+                this one. True for properties of the search process — how many
+                candidates a round produces, what a design session costs. False
+                for cost per query, which is a property of the task: ARC measured
+                $0.74 a query against ifeval's $0.0018, so borrowing across tasks
+                is worse than the default, not better.
+        """
+        if key in mine:
+            notes.append(f"{describe(mine[key])} — measured on {task_name}")
+            return mine[key]
+        if transfers and key in pooled:
+            notes.append(f"{describe(pooled[key])} — measured on other tasks; "
+                         f"nothing on {task_name} yet")
+            return pooled[key]
+        if key in pooled:
+            notes.append(f"{describe(fallback)} — default. Other tasks have "
+                         f"measurements, but cost per query is task-specific "
+                         f"(ARC ran ~400x ifeval), so they are not used here")
+        else:
+            notes.append(f"{describe(fallback)} — default, nothing measured yet")
         return fallback
 
     rounds = int(cfg.designer.rounds)
@@ -157,7 +204,8 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
     candidates = figure("candidates_per_round", DEFAULT_CANDIDATES_PER_ROUND,
                         lambda v: f"{v:.1f} candidates per round")
     per_query = figure("cost_per_query", DEFAULT_COST_PER_QUERY,
-                       lambda v: f"${v:.5f} per query for a typical workflow")
+                       lambda v: f"${v:.5f} per query for a typical workflow",
+                       transfers=False)
     total_candidates = candidates * rounds
     breakdown["score on dev"] = total_candidates * dev * per_query
     notes.append(f"dev split {dev} of {n_examples} examples "
@@ -182,7 +230,23 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
                      "it is not model-judged, which would cost more if it is")
 
     expected = sum(breakdown.values())
-    return Estimate(low=expected * LOW_FACTOR, expected=expected,
-                    high=expected * HIGH_FACTOR,
+
+    # Where this task's own spread is known, scale the range by it rather than by
+    # a made-up factor: the cheapest and dearest workflow actually seen bound the
+    # query-cost term far better than a guess does.
+    scored_queries = total_candidates * dev + finalists * test
+    if "cost_per_query_low" in mine and per_query > 0:
+        fixed = expected - scored_queries * per_query
+        low = fixed + scored_queries * mine["cost_per_query_low"]
+        high = fixed + scored_queries * mine["cost_per_query_high"]
+        notes.append(f"range spans the cheapest and dearest workflow measured on "
+                     f"{task_name}: ${mine['cost_per_query_low']:.5f} to "
+                     f"${mine['cost_per_query_high']:.5f} per query")
+    else:
+        low, high = expected * LOW_FACTOR, expected * HIGH_FACTOR
+        notes.append(f"range is a flat {LOW_FACTOR}x-{HIGH_FACTOR}x — no measured "
+                     f"spread for {task_name} to derive it from")
+
+    return Estimate(low=max(0.0, low), expected=expected, high=high,
                     breakdown={k: round(v, 4) for k, v in breakdown.items()},
                     assumptions=notes, based_on_runs=history.get("n_runs", 0))

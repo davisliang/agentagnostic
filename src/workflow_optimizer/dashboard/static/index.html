@@ -187,7 +187,8 @@ function newRunForm() {
       <div><label>design rounds</label><input id="f-rounds" type="number" min="1" max="10" value="2"></div>
       <div><label>examples</label><input id="f-examples" type="number" min="2" max="500" value="40"></div>
       <div><label>concurrency</label><input id="f-concurrency" type="number" min="1" max="32" value="8"></div>
-      <div><label>budget $/query</label><input id="f-budget" type="number" step="0.0001" value="0.002"></div>
+      <div><label title="Which workflow gets recommended, and the target the designer aims at. It does not cap what the search spends.">budget $/query <span style="color:#5b667a">ⓘ</span></label>
+        <input id="f-budget" type="number" step="0.0001" value="0.002"></div>
       <div class="full"><button class="primary" type="submit" id="f-go">start search</button></div>
     </form>
     <div id="f-cost" class="estimate">estimating…</div>
@@ -294,7 +295,9 @@ async function loadEstimate() {
       <div class="inner"><ul style="margin:6px 0 0 14px;padding:0;color:#8b95a7">` +
       e.assumptions.map(a => `<li>${esc(a)}</li>`).join("") + `</ul></div></details>
     <div class="note">A real estimate, not a cap. The design agent is the least
-      predictable part; the range is wide on purpose.</div>`;
+      predictable part; the range is wide on purpose. Budget $/query steers which
+      workflow is recommended, not what the search spends — the levers above are
+      rounds and examples.</div>`;
 }
 
 function readUpload(ev) {

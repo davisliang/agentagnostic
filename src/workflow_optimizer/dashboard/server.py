@@ -223,7 +223,8 @@ def estimate_cost(task: str, overrides: dict, freetext: bool = False,
     except Exception as error:
         return {"error": f"config: {error}"}
 
-    history = costs.observed([runstore.read_events(s.run_id) for s in runstore.list_runs()])
+    history = costs.observed([(s.task, runstore.read_events(s.run_id))
+                              for s in runstore.list_runs()])
     generates = not (has_dataset or (not freetext and bool(cfg.task.dataset)))
     guess = costs.estimate(cfg, history, generates_data=generates,
                            judged=None if not freetext else False)

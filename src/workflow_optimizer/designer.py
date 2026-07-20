@@ -161,6 +161,13 @@ def _round_prompt(cfg, benchmark, round_num: int, context: str) -> str:
     if analysis.answer_examples:
         facts += ("\nCorrectly formatted answers for this task look exactly like:\n- "
                   + "\n- ".join(str(e) for e in analysis.answer_examples[:4]))
+    # The budget only ever filtered the final recommendation, which meant the
+    # agent could spend the whole search designing workflows nobody would pick.
+    facts += (f"\n\nCost target: the workflow that gets recommended must cost no more "
+              f"than ${cfg.report.max_cost_per_query:.5f} per query. Designing above it "
+              f"is not wasted — an expensive workflow that is much more accurate is "
+              f"still worth knowing about — but at least one candidate should come in "
+              f"under it.")
 
     goal = (prompts.render("design_goal_initial", description=benchmark.description)
             if round_num == 1 else

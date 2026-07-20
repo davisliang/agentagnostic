@@ -302,10 +302,11 @@ def test_past_runs_replace_the_defaults(a_run):
             "description": "", "dev_accuracy": 0.5, "dev_cost": 0.002,
             "cached_input_frac": 0.0, "errors": []})
 
-    history = costs.observed([runstore.read_events(a_run.run_id)])
-    assert history["agent_cost_per_round"] == pytest.approx(0.40)
-    assert history["cost_per_query"] == pytest.approx(0.002)
-    assert history["candidates_per_round"] == pytest.approx(1.0)
+    history = costs.observed([('gsm8k', runstore.read_events(a_run.run_id))])
+    mine = history["tasks"]["gsm8k"]
+    assert mine["agent_cost_per_round"] == pytest.approx(0.40)
+    assert mine["cost_per_query"] == pytest.approx(0.002)
+    assert mine["candidates_per_round"] == pytest.approx(1.0)
 
     result = server.estimate_cost("gsm8k", {"designer.rounds": "2"})
     assert result["based_on_runs"] == 1
@@ -386,3 +387,42 @@ def test_the_agent_cost_line_is_found_amid_other_output():
     assert AGENT_COST.search("  [tool] Bash") is None
     assert AGENT_COST.search("[agent finished: success]") is None
     assert AGENT_COST.search("[agent cost: $0.0500 over 3 turns]").group(1) == "0.0500"
+
+
+def test_cost_per_query_is_not_borrowed_between_tasks():
+    """ARC measured $0.74 a query against ifeval's $0.0018. Pooling those made
+    every task estimate the same number and ARC's wrong by ~30x."""
+    history = costs.observed([
+        ("arc_agi_2", [{"event": "round_start", "round": 1},
+                       {"event": "candidate", "dev_cost": 0.74, "dev_accuracy": 0.5}]),
+        ("ifeval", [{"event": "round_start", "round": 1},
+                    {"event": "candidate", "dev_cost": 0.0018, "dev_accuracy": 0.5}]),
+    ])
+    assert history["tasks"]["arc_agi_2"]["cost_per_query"] == pytest.approx(0.74)
+    assert history["tasks"]["ifeval"]["cost_per_query"] == pytest.approx(0.0018)
+
+    arc = costs.estimate(load_config("arc_agi_2", ["data.n_examples=40"]), history)
+    ifeval = costs.estimate(load_config("ifeval", ["data.n_examples=40"]), history)
+    assert arc.expected > ifeval.expected * 20        # the task dominates, as it must
+
+    # a task with no history of its own uses the default, not the polluted pool
+    gsm8k = costs.estimate(load_config("gsm8k", ["data.n_examples=40"]), history)
+    assert gsm8k.expected < arc.expected / 10
+    assert any("task-specific" in a for a in gsm8k.assumptions)
+
+
+def test_the_designer_is_told_the_cost_target():
+    """The budget used to filter only the final recommendation, so the agent could
+    spend a whole search designing workflows nobody would pick."""
+    from workflow_optimizer.designer import _round_prompt
+
+    cfg = load_config("gsm8k", ["report.max_cost_per_query=0.004"])
+    from workflow_optimizer.analysis import Benchmark, TaskAnalysis
+    from workflow_optimizer.grading import Grader
+    benchmark = Benchmark(
+        analysis=TaskAnalysis(description="Add numbers.", check_type="numeric",
+                              judge_rubric="", answer_examples=["5"]),
+        grader=Grader(kind="numeric"), dev=[{"question": "q", "answer": "1"}],
+        test=[{"question": "q", "answer": "1"}])
+    prompt = _round_prompt(cfg, benchmark, 1, "")
+    assert "0.00400" in prompt and "Cost target" in prompt
