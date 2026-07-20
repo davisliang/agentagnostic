@@ -169,6 +169,16 @@ def judge_score(prediction, gold, rubric="", task=""):
         return 0.0
     return max(0.0, min(1.0, score / 100.0))   # a schema can't bound a range, so clamp
 
+def load_custom_grader():
+    # check_type "custom": the task ships a grader.py next to task_spec.json
+    # exposing grade(prediction, item) -> float in [0, 1]. Lets an external
+    # benchmark score with its OWN metric instead of one of the checks below.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("task_grader", "grader.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.grade
+
 def check_answer(prediction, gold, check_type):
     if check_type == "numeric":
         p, g = as_number(prediction), as_number(gold)
@@ -304,6 +314,7 @@ def main():
     spec = json.load(open("task_spec.json"))
     dev = json.load(open("dev_task.json"))
     CHECK_TYPE = spec["check"].get("type", "exact")
+    grade_custom = load_custom_grader() if CHECK_TYPE == "custom" else None
     JUDGE_RUBRIC = spec["check"].get("rubric", "")
     JUDGE_TASK = spec["check"].get("task", "")
 
@@ -323,7 +334,11 @@ def main():
         runtime = Runtime(DEFAULT_MODEL)
         try:
             returned = _with_timeout(lambda: solve(item["question"], runtime.call_model), 90)
-            scores.append(check_answer(final_answer(returned), item["answer"], CHECK_TYPE))
+            answer = final_answer(returned)
+            # a custom grader sees the whole item: some metrics (ifeval's constraint
+            # list, pass@1's tests) need more than the gold answer string.
+            scores.append(grade_custom(answer, item) if grade_custom
+                          else check_answer(answer, item["answer"], CHECK_TYPE))
         except Exception as error:
             scores.append(0.0)
             errors.append(str(error)[:80])
