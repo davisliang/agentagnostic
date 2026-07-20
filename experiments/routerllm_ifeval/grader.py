@@ -17,6 +17,15 @@ LMEVAL_SITE_PACKAGES = (
 if LMEVAL_SITE_PACKAGES not in sys.path:
     sys.path.append(LMEVAL_SITE_PACKAGES)
 
+import langdetect  # noqa: E402
+
+# ifeval's checkers call langdetect for the language, all-lowercase and
+# all-uppercase constraints, and langdetect randomises its detector per process
+# unless seeded. Neither lm-eval nor routerllm pins it, so grading the SAME
+# answers twice can give different scores. Pinned here so a result is
+# reproducible; see README for the size of the effect.
+langdetect.DetectorFactory.seed = 0
+
 from lm_eval.tasks.ifeval.utils import (  # noqa: E402
     InputExample,
     test_instruction_following_strict,

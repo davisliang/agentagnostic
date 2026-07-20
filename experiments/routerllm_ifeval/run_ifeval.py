@@ -19,8 +19,11 @@ import grader  # noqa: E402  (adds lm-eval to sys.path as a side effect)
 ap = argparse.ArgumentParser()
 ap.add_argument("--rounds", type=int, default=3)
 ap.add_argument("--smoke", action="store_true", help="tiny run to prove the wiring")
+ap.add_argument("--data", default=str(HERE),
+                help="dir holding ifeval_train.jsonl / ifeval_test.jsonl (see build_data.py)")
 ap.add_argument("--out", default=str(HERE / "ifeval_result.json"))
 args = ap.parse_args()
+DATA = pathlib.Path(args.data)
 
 # ---- load the notebook's machinery ----------------------------------------
 cells = json.loads((REPO / "workflow_optimizer_v0.ipynb").read_text())["cells"]
@@ -34,8 +37,8 @@ c12 = src(12)
 exec(c12[:c12.index("def generate_json(")], ns)
 
 # ---- the task ---------------------------------------------------------------
-train = [json.loads(l) for l in open(HERE / "ifeval_train.jsonl")]
-test = [json.loads(l) for l in open(HERE / "ifeval_test.jsonl")]
+train = [json.loads(l) for l in open(DATA / "ifeval_train.jsonl")]
+test = [json.loads(l) for l in open(DATA / "ifeval_test.jsonl")]
 for r in train + test:
     r["answer"] = ""                    # unused: the constraint checker is the grader
 
@@ -69,6 +72,35 @@ ns["DATA_DEV"], ns["DATA_TEST"] = train[:split], train[split:]
 _Runtime = ns["Runtime"]
 ns["Runtime"] = lambda m, **kw: _Runtime(m, max_calls=6, token_budget=20_000)
 
+# The notebook's compile_solve deliberately runs candidates with full Python.
+# For a benchmark number that is not good enough: nothing would stop a candidate
+# importing grader.py and scoring itself against the metric. Re-apply
+# eval_candidate.py's allowlist so that is impossible rather than merely absent.
+import builtins as _bi
+_ALLOWED = {"re", "json", "math", "statistics", "collections", "itertools",
+            "functools", "string"}
+def _imp(name, *a, **k):
+    if name.split(".")[0] not in _ALLOWED:
+        raise ImportError(f"blocked import in candidate: {name}")
+    return _bi.__import__(name, *a, **k)
+_B = {n: getattr(_bi, n) for n in (
+    "range len min max sum sorted abs round divmod pow enumerate zip map filter "
+    "list dict set tuple str int float bool any all isinstance reversed print "
+    "Exception ValueError KeyError TypeError AttributeError ZeroDivisionError").split()}
+_B["__import__"] = _imp
+
+def _compile_solve(code):
+    import re as _re, json as _json, statistics as _st
+    from collections import Counter as _C
+    nsp = {"__builtins__": _B, "re": _re, "json": _json, "statistics": _st,
+           "Counter": _C, "extract_last_number": ns["extract_last_number"],
+           "MODELS": ns["MODELS"], "ANSWER_SCHEMA": ns["ANSWER_SCHEMA"]}
+    exec(code, nsp)
+    if not callable(nsp.get("solve")):
+        raise ValueError("program does not define solve(question, call_model)")
+    return nsp["solve"]
+ns["compile_solve"] = _compile_solve
+
 BASE_MODEL = ns["MODELS"][0]           # haiku; a workflow may escalate itself
 
 def evaluate(program, data):
@@ -94,11 +126,9 @@ if not archive:
     sys.exit("no candidates survived — nothing to report")
 
 # ---- rank on the held-out slice of train, then the router's 46 -------------
-front = ns["pareto_front"]([{"name": p["name"], "accuracy": p["dev_accuracy"],
-                             "cost_per_query": p["dev_cost"]} for p in archive])
-by_name = {p["name"]: p for p in archive}
-finalists = [by_name[r["name"]] for r in front]
-print(f"\n{len(archive)} candidates -> {len(finalists)} on the dev frontier", flush=True)
+finalists = archive     # score them all: ties on a 60-example dev set are common,
+                       # and the frontier silently drops the tied-but-pricier ones
+print(f"\nscoring all {len(finalists)} candidates on internal + held-out test", flush=True)
 
 results = []
 for p in finalists:

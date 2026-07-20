@@ -16,8 +16,27 @@ its own answer before returning it, which is not something routing can express.
 ## Comparability
 
 Grading uses lm-eval's own `test_instruction_following_strict`, the same checker
-behind routerllm's `summary.json`. Validated: it reproduces the recorded
-`correct{haiku,opus}` labels on all 146 ifeval examples (292/292 checks).
+behind routerllm's `summary.json`. `build_data.py` verifies it against that
+repo's recorded `correct{haiku,opus}` labels and refuses to write data if the
+reported slice disagrees:
+
+    test  92/92   agree   <- reported; asserted exact
+    train 197/200 agree   <- selection only
+
+The train gap is the benchmark disagreeing with itself, not a bug here. ifeval's
+`change_case:*` and `language:*` checkers call `langdetect`, which randomises per
+process unless seeded, and neither lm-eval nor routerllm seeds it — so grading
+identical answers twice can give different scores. `grader.py` pins
+`DetectorFactory.seed = 0`.
+
+Measured effect, regrading the recorded answers under 12 seeds:
+
+    train  n=100   spread 0.010-0.020   (1-2 examples)
+    test   n= 46   spread 0.0000        (stable)
+
+So the reported numbers carry no grading noise; only selection is affected. The
+46-example test slice is a different matter for *sampling* noise — one example
+is worth 2.2 points, so differences under ~4 points are not meaningful.
 
 `grader.py` is deliberately kept OUT of the workflow sandbox. A program able to
 call the checker would be grading itself against the metric.
