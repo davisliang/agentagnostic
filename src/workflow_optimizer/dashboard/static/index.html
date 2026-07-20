@@ -111,10 +111,19 @@
   .estimate details { background:none; border:none; margin:4px 0 0; }
   .estimate details > summary { padding:2px 0; color:#7dd3fc; font-size:11px; }
   .estimate details .inner { padding:0; }
+  .answers-scroll { max-height:70vh; overflow:auto; }
+  table.answers { border-collapse:separate; border-spacing:0; }
   table.answers td, table.answers th { vertical-align:top; }
+  /* header row: frozen to the top of the scroll box */
+  table.answers thead th { position:sticky; top:0; z-index:2; background:#12161d;
+                           border-bottom:1px solid #2a313c; }
+  /* question column: frozen to the left */
+  table.answers th.qhead, table.answers td.aq { position:sticky; left:0; background:#12161d;
+                           border-right:1px solid #2a313c; }
+  table.answers th.qhead { z-index:3; }        /* the corner sits above both */
   table.answers .acol { min-width:190px; font-family:ui-monospace,Menlo,monospace;
                         color:#dde3ef; text-transform:none; font-size:11px; }
-  table.answers .aq { max-width:280px; font-size:11px; color:#8b95a7; }
+  table.answers .aq { max-width:280px; min-width:220px; font-size:11px; color:#8b95a7; }
   table.answers .aq details { background:none; border:none; margin:0; }
   table.answers .aq summary { padding:2px 0; color:#bdc4d3; }
   .acell { border-left:1px solid #1d242e; }
@@ -675,8 +684,8 @@ function answersHtml() {
 
   return `<div class="desc">${d.rows.length} example(s) on ${esc(d.split)}, the ones they
       disagree on first. Click a question to read it in full.</div>
-    <div class="card" style="padding:0;overflow-x:auto">
-      <table class="answers"><thead><tr><th style="min-width:220px">question</th>${head}</tr></thead>
+    <div class="card answers-scroll" style="padding:0">
+      <table class="answers"><thead><tr><th class="qhead">question</th>${head}</tr></thead>
       <tbody>${body}</tbody></table></div>`;
 }
 
