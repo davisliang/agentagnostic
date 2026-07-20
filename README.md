@@ -51,9 +51,10 @@ searches, watches them run, and compares what they found:
   timeline of milestones, and the full log.
 
 Runs live in `runs/<run_id>/` — the resolved config, a status header, an
-append-only event log, the raw log, per-candidate call traces, and the result. The server holds no
-state of its own: it reads those files, and each search runs in its own
-subprocess. Restart the server mid-search and the page picks up where it was.
+append-only event log, the raw log, per-candidate call traces, and the result.
+The server holds no state of its own: it reads those files, and each search runs
+in its own subprocess. Restart the server mid-search and the page picks up where
+it was.
 
 It binds to localhost because starting a search spends real money — anything that
 can reach the port can spend it.
