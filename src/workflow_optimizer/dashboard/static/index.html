@@ -162,6 +162,7 @@ const PHASES = ["queued","analyzing","designing","ranking","done"];
 let activeId = null, timer = null, selectedCandidate = null, showNew = false;
 let candView = "code", traceCache = null, logLines = 400;   // verbose-view state
 let view = "runs", newMode = "benchmark", uploaded = null, benchmarks = [];
+let workflowTools = [], toolChoice = null;   // null = use the task default
 let compareTask = "", comparePoints = [];
 let answersSplit = "", answersData = null;   // side-by-side answers, "" = closed
 let frontierPoints = [], hoveringChart = false;   // hovering pauses the refresh
@@ -217,6 +218,7 @@ function newRunForm() {
       <div><label>concurrency</label><input id="f-concurrency" type="number" min="1" max="32" value="8"></div>
       <div><label title="Which workflow gets recommended, and the target the designer aims at. It does not cap what the search spends.">budget $/query <span style="color:#5b667a">ⓘ</span></label>
         <input id="f-budget" type="number" step="0.0001" value="0.002"></div>
+      <div class="full" id="f-tools"></div>
       <div class="full"><button class="primary" type="submit" id="f-go">start search</button></div>
     </form>
     <div id="f-cost" class="estimate">estimating…</div>
@@ -231,9 +233,41 @@ async function fillTasks() {
     const data = await (await fetch("/api/tasks")).json();
     benchmarks = data.benchmarks || [];
     window._tasks = data.tasks || [];
+    workflowTools = data.workflow_tools || [];
+    window._defaultTools = data.default_tools || [];
   }
   slot.innerHTML = newMode === "benchmark" ? benchmarkPicker() : promptFields();
   if (newMode === "benchmark") describeTask();
+  renderTools();
+}
+
+// Which server-side tools a workflow may call. Left at the task default unless
+// touched; unchecking web_search makes a benchmark closed-book, so its numbers
+// stay comparable to a closed-book baseline.
+function renderTools() {
+  const box = document.getElementById("f-tools");
+  if (!box) return;
+  const current = toolChoice || defaultTools();
+  box.innerHTML = `<label>tools workflows may use</label>` +
+    workflowTools.map(name => `<label style="display:inline-flex;gap:5px;align-items:center;
+        text-transform:none;color:#bdc4d3;margin-right:14px;font-size:12px">
+      <input type="checkbox" data-tool="${esc(name)}" ${current.includes(name) ? "checked" : ""}
+        onchange="toggleTool('${esc(name)}',this.checked)" style="width:auto"> ${esc(name)}</label>`).join("") +
+    `<div class="desc" style="margin-top:2px">Uncheck web_search for a closed-book task, so
+       no candidate can look answers up. The design agent is told what's available.</div>`;
+}
+
+function defaultTools() {
+  if (newMode === "benchmark") {
+    const b = benchmarks.find(x => x.name === (document.getElementById("f-task")||{}).value);
+    if (b && b.tools) return b.tools;
+  }
+  return window._defaultTools || [];
+}
+
+function toggleTool(name, on) {
+  const base = (toolChoice || defaultTools()).slice();
+  toolChoice = on ? [...new Set([...base, name])] : base.filter(t => t !== name);
 }
 
 function benchmarkPicker() {
@@ -245,7 +279,7 @@ function benchmarkPicker() {
   }).join("");
   const unsupported = benchmarks.filter(b => !b.supported);
   return `<label>task or benchmark</label>
-    <select id="f-task" onchange="describeTask();scheduleEstimate()">${options}</select>
+    <select id="f-task" onchange="describeTask();renderTools();scheduleEstimate()">${options}</select>
     <div class="desc" id="f-desc"></div>` +
     (unsupported.length ? `<div class="note">not runnable here: ` +
       unsupported.map(b => `${esc(b.name)} (${esc(b.note)})`).join("; ") + `</div>` : "");
@@ -399,6 +433,7 @@ async function startRun(ev) {
     task: newMode === "benchmark" ? document.getElementById("f-task").value : "",
     prompt: newMode === "prompt" ? (document.getElementById("f-prompt").value || "") : "",
     dataset: newMode === "prompt" ? (uploaded || "") : "",
+    tools: toolChoice,
     overrides: {
       "designer.rounds": document.getElementById("f-rounds").value,
       "data.n_examples": document.getElementById("f-examples").value,

@@ -355,3 +355,42 @@ def test_asking_for_more_than_exists_keeps_everything():
     data = [{"question": f"q{i}", "answer": str(i)} for i in range(10)]
     assert len(datasets.take(data, 40, log=lambda *a: None)) == 10
     assert len(datasets.take(data, 0, log=lambda *a: None)) == 10      # 0 means all
+
+
+# ---- a task can forbid the tools its workflows may use ----------------------
+def test_a_forbidden_tool_is_rejected_at_the_call_site(cfg, catalog):
+    """A closed-book task sets tools=[]; a candidate that still calls web_search
+    must fail, not quietly answer another way, or the benchmark isn't closed-book."""
+    from workflow_optimizer.runtime import CallMeter
+
+    meter = CallMeter(FakeClient(catalog), catalog.default, 24, 120_000, allowed_tools=[])
+    with pytest.raises(RuntimeError) as raised:
+        meter.call_model("q", tools=["web_search"])
+    assert "not allowed" in str(raised.value)
+
+
+def test_an_allowed_tool_passes(cfg, catalog):
+    from workflow_optimizer.runtime import CallMeter
+
+    meter = CallMeter(FakeClient(catalog), catalog.default, 24, 120_000,
+                      allowed_tools=["code_execution"])
+    meter.call_model("q", tools=["code_execution"])          # must not raise
+    assert meter.calls == 1
+
+
+def test_no_allowlist_means_no_restriction(cfg, catalog):
+    from workflow_optimizer.runtime import CallMeter
+
+    meter = CallMeter(FakeClient(catalog), catalog.default, 24, 120_000)  # allowed_tools=None
+    meter.call_model("q", tools=["web_search"])              # anything goes
+    assert meter.calls == 1
+
+
+def test_the_evaluator_enforces_the_configs_tools(catalog):
+    cfg = load_config("gsm8k", ["runtime.tools=[]"])
+    searcher = {"name": "searcher", "code": (
+        "def solve(q, call_model):\n"
+        "    return call_model(q, tools=['web_search'])\n")}
+    result = Evaluator(FakeClient(catalog), Grader(kind="numeric"), cfg.runtime).run(searcher, DATA)
+    assert result.accuracy == 0.0                            # every example rejected
+    assert all("not allowed" in e for e in result.errors)

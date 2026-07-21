@@ -572,3 +572,15 @@ def test_comparing_answers_needs_traces(a_run):
         "cached_input_frac": 0.0, "errors": []})
     result = server.compare_examples(a_run.run_id, "dev")
     assert result["rows"] == [] and "no dev traces" in result["note"]
+
+
+def test_the_tools_selection_persists_and_is_validated(runs_dir, monkeypatch):
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **k: type("P", (), {"pid": 4242})())
+    # a bogus tool is refused
+    assert "unknown tool" in server.start_run("gsm8k", {}, tools=["telepathy"])["error"]
+    # a closed-book choice is written to the run's config
+    result = server.start_run("gsm8k", {}, tools=[])
+    assert result["ok"] is True
+    cfg = load_resolved(runstore.run_dir(result["run_id"]) / "config.yaml")
+    assert list(cfg.runtime.tools) == []

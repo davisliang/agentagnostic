@@ -485,8 +485,26 @@ def list_benchmarks() -> list[dict]:
             "supported": bool(meta.get("grading_supported", True)),
             "note": meta.get("grading_note", ""),
             "baselines": meta.get("baselines") or {},
+            "tools": _task_tools(meta.get("name", folder.name)),
         })
     return found
+
+
+def _task_tools(task: str) -> Optional[list]:
+    """The server-side tools a task's config allows, or None to use the default.
+
+    Args:
+        task: A task name.
+
+    Returns:
+        The list from `config/task/<task>.yaml`'s `runtime.tools`, or None when
+        the task doesn't set one.
+    """
+    path = CONFIG_DIR / "task" / f"{task}.yaml"
+    if not path.exists():
+        return None
+    cfg = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    return (cfg.get("runtime") or {}).get("tools")
 
 
 def baselines_for(task: str) -> dict:

@@ -91,7 +91,11 @@ def parse_dataset(text: str) -> tuple[list, str]:
     return examples, ""
 
 
-def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = "") -> dict:
+ALLOWED_WORKFLOW_TOOLS = ["code_execution", "web_search"]
+
+
+def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = "",
+              tools: list = None) -> dict:
     """Create a run directory and launch the pipeline against it.
 
     Args:
@@ -104,10 +108,17 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
             using a task file; the analyzer infers the grading rule from it.
         dataset_text: An uploaded JSONL or JSON array of examples. Optional — a
             free-text task with no data generates its own.
+        tools: Server-side tools workflows may use, a subset of
+            ALLOWED_WORKFLOW_TOOLS. None leaves the task's config default; a list
+            (including []) overrides it, so [] forbids all tools.
 
     Returns:
         `{"ok": True, "run_id": ...}`, or `{"ok": False, "error": ...}`.
     """
+    if tools is not None:
+        bad = [x for x in tools if x not in ALLOWED_WORKFLOW_TOOLS]
+        if bad:
+            return {"ok": False, "error": f"unknown tool(s): {', '.join(bad)}"}
     freetext = bool(prompt and prompt.strip())
     if not freetext and task not in runstore.list_tasks():
         return {"ok": False, "error": f"unknown task: {task}"}
@@ -141,11 +152,15 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
     except Exception as error:
         return {"ok": False, "error": f"config: {error}"}
 
+    if tools is not None:
+        cfg.runtime.tools = list(tools)
+
     status = runstore.create_run(cfg.task.name, cfg)
     if examples:
         data_file = runstore.run_dir(status.run_id) / "dataset.jsonl"
         data_file.write_text("".join(json.dumps(e) + "\n" for e in examples))
         cfg.task.dataset = str(data_file)
+    if examples or tools is not None:
         runstore.write_config(status.run_id, cfg)
     process = subprocess.Popen(
         [sys.executable, "-u", "-m", "workflow_optimizer.dashboard.runner", status.run_id],
@@ -501,7 +516,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/tasks":
                 return self._json({"tasks": runstore.list_tasks(),
                                    "benchmarks": runstore.list_benchmarks(),
-                                   "fields": sorted(FORM_FIELDS)})
+                                   "fields": sorted(FORM_FIELDS),
+                                   "workflow_tools": ALLOWED_WORKFLOW_TOOLS,
+                                   "default_tools": list(load_config().runtime.tools)})
             if path == "/api/compare":
                 return self._json(compare_runs())
             if path == "/api/estimate":
@@ -561,7 +578,8 @@ class Handler(BaseHTTPRequestHandler):
                 body = self._body()
                 result = start_run(body.get("task", ""), body.get("overrides", {}),
                                    prompt=body.get("prompt", ""),
-                                   dataset_text=body.get("dataset", ""))
+                                   dataset_text=body.get("dataset", ""),
+                                   tools=body.get("tools"))
                 return self._json(result, code=200 if result.get("ok") else 400)
             if path.startswith("/api/run/") and path.endswith("/stop"):
                 run_id = path[len("/api/run/"):-len("/stop")]

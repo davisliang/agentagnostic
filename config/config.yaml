@@ -46,6 +46,9 @@ runtime:
   max_model_calls: 24      # model calls one query may make
   max_tokens: 120000       # tokens one query may spend
   concurrency: 8           # examples scored at once (API latency dominates)
+  # Server-side tools a workflow may call. Drop one to forbid it; set to [] for a
+  # closed-book task, so no candidate can reach the web or run code.
+  tools: [code_execution, web_search]
 
 # Grading free-form answers (check_type: llm_judge).
 judge:

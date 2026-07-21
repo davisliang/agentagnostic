@@ -105,7 +105,8 @@ class CallMeter:
         records: A CallRecord per call, in order.
     """
 
-    def __init__(self, client, default_model: str, max_model_calls: int, max_tokens: int):
+    def __init__(self, client, default_model: str, max_model_calls: int, max_tokens: int,
+                 allowed_tools=None):
         """Build a meter for one query.
 
         Args:
@@ -113,11 +114,14 @@ class CallMeter:
             default_model: Model used when the workflow names none.
             max_model_calls: Cap on model calls for this query.
             max_tokens: Cap on tokens for this query.
+            allowed_tools: Server-side tools a workflow may call. None means no
+                restriction; a list (possibly empty) forbids anything not on it.
         """
         self.client = client
         self.default_model = default_model
         self.max_model_calls = max_model_calls
         self.max_tokens = max_tokens
+        self.allowed_tools = allowed_tools
         self.calls = 0
         self.tokens = 0
         self.cost = 0.0
@@ -133,6 +137,7 @@ class CallMeter:
                 default — model-written code routes by name and may invent one.
             system: Optional system prompt.
             tools: Server-side tools to enable: "code_execution", "web_search".
+                A tool not on the task's allowlist raises RuntimeError.
             effort: Thinking depth, "low" through "max". Ignored on models that
                 cannot think.
             schema: JSON Schema (or Pydantic class) constraining the reply. The
@@ -147,6 +152,13 @@ class CallMeter:
         """
         if self.calls >= self.max_model_calls:
             raise RuntimeError("workflow exceeded its model-call budget")
+        # Enforced here because this is the one place a workflow reaches a tool.
+        # Rejected, not silently dropped: a closed-book run must fail a candidate
+        # that tried to search, not quietly answer it a different way.
+        if self.allowed_tools is not None:
+            for tool in tools or []:
+                if tool not in self.allowed_tools:
+                    raise RuntimeError(f"tool '{tool}' is not allowed for this task")
         self.calls += 1
         model = self.client.catalog.resolve(model) if model else self.default_model
 
@@ -390,7 +402,8 @@ class Evaluator:
             it ran cleanly), and `calls` — the CallRecord trace.
         """
         meter = CallMeter(self.client, self.default_model,
-                          self.cfg.max_model_calls, self.cfg.max_tokens)
+                          self.cfg.max_model_calls, self.cfg.max_tokens,
+                          allowed_tools=list(getattr(self.cfg, "tools", []) or []))
         answer, score, error = "", 0.0, None
         try:
             answer = unwrap_answer(solve(item["question"], meter.call_model))

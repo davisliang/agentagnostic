@@ -40,8 +40,11 @@ searches, watches them run, and compares what they found:
 - **New search** — either pick a **benchmark** (the 14 routerllm holdout tasks
   plus ARC-AGI-2, with their example counts, graders and recorded baselines), or
   **describe a task** in free text and optionally upload your own `.jsonl`.
-  Upload nothing and the examples are generated. Only the listed settings are
-  accepted from the form; everything else comes from config.
+  Upload nothing and the examples are generated. **Tools workflows may use** —
+  code_execution and web_search — are checkboxes; uncheck web_search for a
+  closed-book task so no candidate can look answers up, and its numbers stay
+  comparable to a closed-book baseline. Only the listed settings are accepted
+  from the form; everything else comes from config.
 - **Live progress** — phase pills (analyzing → designing round *i* → ranking →
   done), candidates appearing with dev accuracy and cost as they are scored, and
   the raw log including the design agent's own output. **Stop** kills the run and

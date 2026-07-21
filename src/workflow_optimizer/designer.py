@@ -161,6 +161,16 @@ def _round_prompt(cfg, benchmark, round_num: int, context: str) -> str:
     if analysis.answer_examples:
         facts += ("\nCorrectly formatted answers for this task look exactly like:\n- "
                   + "\n- ".join(str(e) for e in analysis.answer_examples[:4]))
+    # Tell the agent what tools it may design with. A workflow that calls a
+    # forbidden one is rejected, so a wrong assumption here wastes candidates.
+    tools = list(cfg.runtime.tools or [])
+    if tools:
+        facts += (f"\n\nServer-side tools workflows MAY use: {', '.join(tools)}. "
+                  "Pass them via tools=[...] on call_model.")
+    else:
+        facts += ("\n\nNo server-side tools are available for this task: workflows must "
+                  "NOT pass tools= to call_model. It is closed-book — no web search, no "
+                  "code execution.")
     # The budget only ever filtered the final recommendation, which meant the
     # agent could spend the whole search designing workflows nobody would pick.
     facts += (f"\n\nCost target: the workflow that gets recommended must cost no more "

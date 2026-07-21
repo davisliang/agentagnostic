@@ -62,10 +62,15 @@ class RuntimeConfig:
         max_tokens: Tokens a single query may spend before it is stopped.
         concurrency: How many examples are scored at once. API latency dominates
             the wall clock, so this is the main speed knob.
+        tools: Server-side tools a workflow may call — a subset of
+            "code_execution" and "web_search". A workflow that calls one not on
+            this list is rejected, so a closed-book benchmark can set `tools: []`
+            and be sure no candidate reached the web. Empty means neither.
     """
     max_model_calls: int = 24
     max_tokens: int = 120_000
     concurrency: int = 8
+    tools: list[str] = field(default_factory=lambda: ["code_execution", "web_search"])
 
 
 @dataclass
