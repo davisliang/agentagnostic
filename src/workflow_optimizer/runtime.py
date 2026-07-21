@@ -159,6 +159,13 @@ class CallMeter:
             for tool in tools or []:
                 if tool not in self.allowed_tools:
                     raise RuntimeError(f"tool '{tool}' is not allowed for this task")
+        # The web tools bundle their own code-execution sandbox for dynamic
+        # filtering; a second one alongside confuses the model, so the API forbids
+        # the pair. Reject it here rather than let it 400 mid-search.
+        requested = set(tools or [])
+        if "code_execution" in requested and requested & {"web_search", "web_fetch"}:
+            raise RuntimeError("code_execution cannot be combined with web_search/web_fetch "
+                               "in one call — the web tools already run code")
         self.calls += 1
         model = self.client.catalog.resolve(model) if model else self.default_model
 

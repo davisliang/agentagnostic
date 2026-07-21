@@ -91,7 +91,10 @@ def parse_dataset(text: str) -> tuple[list, str]:
     return examples, ""
 
 
-ALLOWED_WORKFLOW_TOOLS = ["code_execution", "web_search"]
+# The server-side tools a workflow may be granted — sourced from the client's
+# registry so the form can never offer one the API doesn't know how to send.
+from ..client import TOOL_DEFS
+ALLOWED_WORKFLOW_TOOLS = sorted(TOOL_DEFS)
 
 
 def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = "",

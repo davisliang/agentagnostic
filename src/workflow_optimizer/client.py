@@ -23,7 +23,16 @@ TOOL_DEFS = {
     # without this every web_search call on the default model dies with a 400.
     "web_search": {"type": "web_search_20260209", "name": "web_search",
                    "allowed_callers": ["direct"]},
+    # Fetches a URL already present in the conversation (it won't discover new
+    # ones — pair it with web_search for that). Same direct-caller requirement.
+    "web_fetch": {"type": "web_fetch_20260209", "name": "web_fetch",
+                  "allowed_callers": ["direct"]},
 }
+
+# The _20260209 web tools run code execution under the hood for dynamic
+# filtering, so declaring code_execution alongside either one gives the model a
+# second execution environment and confuses it. A workflow may use the web tools
+# OR code_execution, not both in one call — enforced in CallMeter.
 
 
 @dataclass

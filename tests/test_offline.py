@@ -378,6 +378,20 @@ def test_an_allowed_tool_passes(cfg, catalog):
     assert meter.calls == 1
 
 
+def test_web_tools_cannot_combine_with_code_execution(cfg, catalog):
+    """The _20260209 web tools run code execution for dynamic filtering, so the
+    API forbids a second one alongside — reject it before it 400s a search."""
+    from workflow_optimizer.runtime import CallMeter
+
+    meter = CallMeter(FakeClient(catalog), catalog.default, 24, 120_000,
+                      allowed_tools=["code_execution", "web_search", "web_fetch"])
+    with pytest.raises(RuntimeError) as raised:
+        meter.call_model("q", tools=["web_search", "code_execution"])
+    assert "cannot be combined" in str(raised.value)
+    meter.call_model("q", tools=["web_search"])              # either alone is fine
+    meter.call_model("q", tools=["code_execution"])
+
+
 def test_no_allowlist_means_no_restriction(cfg, catalog):
     from workflow_optimizer.runtime import CallMeter
 

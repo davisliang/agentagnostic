@@ -244,17 +244,28 @@ async function fillTasks() {
 // Which server-side tools a workflow may call. Left at the task default unless
 // touched; unchecking web_search makes a benchmark closed-book, so its numbers
 // stay comparable to a closed-book baseline.
+// A multi-select dropdown listing every server-side tool from the registry.
+// Hold ⌘/Ctrl to pick several; select none for a closed-book task.
 function renderTools() {
   const box = document.getElementById("f-tools");
   if (!box) return;
   const current = toolChoice || defaultTools();
-  box.innerHTML = `<label>tools workflows may use</label>` +
-    workflowTools.map(name => `<label style="display:inline-flex;gap:5px;align-items:center;
-        text-transform:none;color:#bdc4d3;margin-right:14px;font-size:12px">
-      <input type="checkbox" data-tool="${esc(name)}" ${current.includes(name) ? "checked" : ""}
-        onchange="toggleTool('${esc(name)}',this.checked)" style="width:auto"> ${esc(name)}</label>`).join("") +
-    `<div class="desc" style="margin-top:2px">Uncheck web_search for a closed-book task, so
-       no candidate can look answers up. The design agent is told what's available.</div>`;
+  const size = Math.max(2, workflowTools.length);
+  box.innerHTML = `<label>tools workflows may use</label>
+    <select id="f-toollist" multiple size="${size}" onchange="onToolsChange(this)"
+      style="width:100%;background:#0a0e14;color:#cfd6e4;border:1px solid #2a313c;
+             border-radius:4px;padding:4px;font:inherit;font-size:12px">` +
+    workflowTools.map(name =>
+      `<option value="${esc(name)}" ${current.includes(name) ? "selected" : ""}>${esc(name)}</option>`).join("") +
+    `</select>
+    <div class="desc" style="margin-top:2px">Select none for a closed-book task, so no
+       candidate can look answers up or run code — the design agent is told what's available.
+       The web tools bundle their own code execution, so they can't be combined with
+       code_execution in one call.</div>`;
+}
+
+function onToolsChange(sel) {
+  toolChoice = [...sel.selectedOptions].map(o => o.value);
 }
 
 function defaultTools() {
@@ -265,10 +276,7 @@ function defaultTools() {
   return window._defaultTools || [];
 }
 
-function toggleTool(name, on) {
-  const base = (toolChoice || defaultTools()).slice();
-  toolChoice = on ? [...new Set([...base, name])] : base.filter(t => t !== name);
-}
+
 
 function benchmarkPicker() {
   const known = new Set(benchmarks.map(b => b.name));

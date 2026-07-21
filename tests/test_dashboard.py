@@ -579,6 +579,7 @@ def test_the_tools_selection_persists_and_is_validated(runs_dir, monkeypatch):
                         lambda *a, **k: type("P", (), {"pid": 4242})())
     # a bogus tool is refused
     assert "unknown tool" in server.start_run("gsm8k", {}, tools=["telepathy"])["error"]
+    assert set(server.ALLOWED_WORKFLOW_TOOLS) == {"code_execution", "web_search", "web_fetch"}
     # a closed-book choice is written to the run's config
     result = server.start_run("gsm8k", {}, tools=[])
     assert result["ok"] is True

@@ -166,7 +166,10 @@ def _round_prompt(cfg, benchmark, round_num: int, context: str) -> str:
     tools = list(cfg.runtime.tools or [])
     if tools:
         facts += (f"\n\nServer-side tools workflows MAY use: {', '.join(tools)}. "
-                  "Pass them via tools=[...] on call_model.")
+                  "Pass them via tools=[...] on call_model. web_search searches the web; "
+                  "web_fetch retrieves a URL already in the prompt; code_execution runs Python. "
+                  "The web tools bundle their own code execution, so do NOT combine them with "
+                  "code_execution in a single call.")
     else:
         facts += ("\n\nNo server-side tools are available for this task: workflows must "
                   "NOT pass tools= to call_model. It is closed-book — no web search, no "

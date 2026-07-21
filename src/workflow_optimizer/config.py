@@ -70,7 +70,7 @@ class RuntimeConfig:
     max_model_calls: int = 24
     max_tokens: int = 120_000
     concurrency: int = 8
-    tools: list[str] = field(default_factory=lambda: ["code_execution", "web_search"])
+    tools: list[str] = field(default_factory=lambda: ["code_execution", "web_search", "web_fetch"])
 
 
 @dataclass
