@@ -377,7 +377,8 @@ def run_detail(run_id: str, log_lines: int = 400) -> dict:
     Returns:
         Its status, milestones, candidates (merged from live events and the saved
         result so a running search and a finished one render the same way), the
-        log tail, and the frontier. `{"error": "not_found"}` if unknown.
+        research notes, the log tail, and the frontier. `{"error": "not_found"}`
+        if unknown.
     """
     status = runstore.read_status(run_id)
     if status is None:
@@ -421,6 +422,7 @@ def run_detail(run_id: str, log_lines: int = 400) -> dict:
                      "test_sample": analyzed.get("test_sample", [])},
         "candidates": list(candidates.values()),
         "frontier": (result or {}).get("frontier", []),
+        "research": runstore.read_research(run_id),
         "log": runstore.read_log(run_id, max_lines=log_lines),
         "config": runstore.read_config_text(run_id),
         "events": events,

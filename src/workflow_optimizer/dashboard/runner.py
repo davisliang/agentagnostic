@@ -43,7 +43,9 @@ def main(run_id: str) -> int:
         """Record a milestone and reflect it in the run's status header."""
         runstore.append_event(run_id, event)
         kind = event.get("event")
-        if kind == "round_start":
+        if kind == "researching":
+            runstore.update_status(run_id, phase="researching")
+        elif kind == "round_start":
             runstore.update_status(run_id, phase="designing", round=event["round"])
         elif kind == "candidate":
             status = runstore.read_status(run_id)
@@ -71,11 +73,16 @@ def main(run_id: str) -> int:
             """Persist every model call the candidate made, for the verbose view."""
             runstore.write_trace(run_id, candidate.name, split, score.records)
 
+        def keep_research(notes) -> None:
+            """Persist the research phase's notes, so the UI can show them."""
+            runstore.write_research(run_id, notes)
+
         # The caller owns the Search, so the archive survives an interrupt.
         search = Search()
         _save_on_exit(run_id, cfg, search, log)
         optimize(cfg, benchmark, session.evaluator(benchmark.grader),
-                 log=log, on_event=emit, on_scored=keep_trace, search=search)
+                 log=log, on_event=emit, on_scored=keep_trace,
+                 on_research=keep_research, search=search)
 
         report.summarize(search, cfg, log=log)
         _write_result(run_id, cfg, search)

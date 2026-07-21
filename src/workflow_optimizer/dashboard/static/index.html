@@ -158,7 +158,7 @@
 </main>
 
 <script>
-const PHASES = ["queued","analyzing","designing","ranking","done"];
+const PHASES = ["queued","analyzing","researching","designing","ranking","done"];
 let activeId = null, timer = null, selectedCandidate = null, showNew = false;
 let candView = "code", traceCache = null, logLines = 400;   // verbose-view state
 let view = "runs", newMode = "benchmark", uploaded = null, benchmarks = [];
@@ -522,6 +522,16 @@ async function loadDetail() {
       <div class="desc">${esc(d.analysis.description)}</div></div>`);
   }
 
+  // What the design agent found others do for this task, before writing any
+  // workflow. Open while the research phase is running, collapsed once past it.
+  if (d.research) {
+    const researching = s.state === "running" && s.phase === "researching";
+    parts.push(`<h2>research</h2><details${researching ? " open" : ""}>
+      <summary>what the designer found others do for this task, before designing —
+        handed to every design round</summary>
+      <div class="inner"><pre style="white-space:pre-wrap">${esc(d.research)}</pre></div></details>`);
+  }
+
   // The chart shows ONE split at a time, toggleable. Dev has every candidate,
   // since all are dev-scored; test has only the finalists, since dominated
   // candidates are never re-run on test. Switch to dev to see all the points.
@@ -782,6 +792,7 @@ function timelineHtml(events) {
       ? `${e.name} — dev ${acc(e.dev_accuracy)}, ${usd(e.dev_cost)}`
       : e.event === "test_scored" ? `${e.name} — test ${acc(e.test_accuracy)}, ${usd(e.test_cost)}`
       : e.event === "analyzed" ? `${e.check} · ${e.n_dev} dev / ${e.n_test} test`
+      : e.event === "researched" ? `research notes written (${e.chars} chars)`
       : e.event === "round_start" ? `round ${e.round} of ${e.rounds}`
       : e.event === "ranking" ? `${e.n_finalists} finalist(s) on the dev frontier`
       : e.error || "";

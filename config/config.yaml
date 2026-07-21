@@ -72,7 +72,10 @@ data:
 designer:
   model: claude-opus-4-8
   rounds: 3                # design rounds; each one costs real money
+  research: true           # web-research phase before designing, writing research_notes.md
   dev_sample_size: 5       # dev examples the agent may self-test against
+  failures_shown: 4        # worst dev examples surfaced per candidate to the next round
+  dominated_shown: 10      # off-frontier candidates shown besides the full frontier (most recent kept)
   skills: [workflow-design, workflow-eval, workflow-naming]
   allowed_tools: [WebSearch, WebFetch, Bash, Read, Write, Skill]
 

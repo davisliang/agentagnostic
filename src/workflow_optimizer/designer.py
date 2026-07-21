@@ -2,8 +2,9 @@
 
 Each round runs a Claude Agent SDK session in a scratch directory, driven by the
 three skills under `skills/`. On round 1 it designs a diverse initial set; on
-later rounds it is shown the best workflows so far and asked for cheaper ones
-that hold accuracy.
+later rounds it is shown every workflow tried so far — code, dev scores, and the
+examples each got wrong — and asked to design new ones that extend the
+accuracy/cost frontier.
 
 The agent runs in a SEPARATE PROCESS (`workflow_optimizer.proposer`). A notebook
 kernel that has called `nest_asyncio.apply()` monkeypatches `asyncio` for the
@@ -29,63 +30,141 @@ from .paths import ROOT, SKILLS_DIR, resolve
 _ON_DEV = lambda candidate: candidate.dev      # noqa: E731
 
 
-def summarize_archive(candidates: list) -> str:
+def summarize_archive(candidates: list, failures_shown: int = 4,
+                      dominated_shown: int = 10) -> str:
     """Describe the workflows found so far, for the next round's prompt.
 
+    The next round is asked to extend the frontier, not to tweak one incumbent,
+    so it is handed the archive as raw material: each candidate's code and dev
+    result, marked with whether it currently sits on the dev Pareto frontier, and
+    — the part a scalar accuracy throws away — the dev examples it lost points on.
+    Those per-example failures are what tell a new design where and why the
+    existing ones break, which is the thing it has to beat.
+
+    Every frontier candidate is always included; the dominated ones are capped at
+    `dominated_shown` so the prompt stays bounded as the archive grows, keeping the
+    most recent (the latest exploration, and usually the near-misses closest to the
+    frontier). Whatever that drops is stated at the end rather than truncated in
+    silence.
+
     Args:
-        candidates: Every Candidate scored so far. Each needs `.dev` set.
+        candidates: Every Candidate scored so far. Each needs `.dev` set. Empty on
+            round 1, which returns "".
+        failures_shown: How many of each candidate's worst dev examples to include.
+        dominated_shown: How many off-frontier candidates to include besides the
+            full frontier, most-recent first. 0 shows the frontier alone.
 
     Returns:
-        The current dev Pareto frontier as one line per workflow, plus the full
-        code of the most accurate one as a base to improve on. Empty string when
-        there are no candidates yet, i.e. on round 1.
+        The current frontier summarised first, then one block per shown candidate —
+        name, a frontier mark, dev accuracy/cost, its code, and its worst dev
+        examples — and a note of any dominated candidates omitted. Empty string
+        when there are no candidates yet.
     """
     if not candidates:
         return ""
-    lines = [f"- {c.name}: accuracy {c.dev.accuracy:.2f}, ${c.dev.cost:.5f}/query"
-             for c in pareto_front(candidates, on=_ON_DEV)]
-    best = max(candidates, key=lambda c: c.dev.accuracy)
-    lines.append(f"\nMost accurate so far is '{best.name}' (accuracy {best.dev.accuracy:.2f}, "
-                 f"${best.dev.cost:.5f}/query). Its code:\n{best.code}")
+    frontier = pareto_front(candidates, on=_ON_DEV)
+    on_frontier = {id(c) for c in frontier}
+
+    dominated = [c for c in candidates if id(c) not in on_frontier]
+    start = max(0, len(dominated) - dominated_shown)         # most recent dominated_shown
+    kept = on_frontier | {id(c) for c in dominated[start:]}
+    omitted = len(dominated) - len(dominated[start:])
+
+    header = ["Current dev Pareto frontier (cheapest -> most accurate):"]
+    header += [f"  {c.name}: accuracy {c.dev.accuracy:.2f}, ${c.dev.cost:.5f}/query"
+               for c in frontier]
+
+    blocks = []
+    for c in candidates:                                     # kept ones, in proposal order
+        if id(c) not in kept:
+            continue
+        mark = "  [ON FRONTIER]" if id(c) in on_frontier else ""
+        parts = [f"### {c.name}{mark} — accuracy {c.dev.accuracy:.2f}, "
+                 f"${c.dev.cost:.5f}/query, cached {c.dev.cached_input_frac:.0%}"]
+        if c.description:
+            parts.append(c.description)
+        if c.dev.error:                        # never ran — show why, not empty code
+            parts.append(f"(did not run: {c.dev.error})")
+        parts.append("```python\n" + c.code.strip() + "\n```")
+        digest = _failure_digest(c.dev, failures_shown)
+        if digest:
+            parts.append(digest)
+        blocks.append("\n".join(parts))
+
+    body = "\n".join(header) + "\n\n" + "\n\n".join(blocks)
+    if omitted:
+        body += (f"\n\n(+ {omitted} more dominated workflow(s) not shown — the "
+                 f"{dominated_shown} most recent are kept; every frontier workflow is shown.)")
+    return body
+
+
+def _failure_digest(score, k: int) -> str:
+    """The dev examples a candidate lost the most points on, formatted compactly.
+
+    Its accuracy says how often it was wrong; this says on WHICH inputs and how —
+    the answer it returned, the gold it was graded against, or the error that
+    scored it 0. A numeric grader rejecting "150 miles", a router mis-sending hard
+    inputs to the cheap model, a workflow blowing its call budget: all of that is
+    here and none of it is in the scalar.
+
+    Args:
+        score: The candidate's dev SplitScore, whose `records` hold per-example
+            question / gold / answer / score / error.
+        k: How many of the worst examples to include.
+
+    Returns:
+        A short "Lost points on:" list, worst first, or "" when the candidate was
+        perfect or never ran (nothing to show).
+    """
+    losers = sorted((r for r in score.records if r["score"] < 1.0),
+                    key=lambda r: r["score"])[:k]
+    if not losers:
+        return ""
+    lines = ["Lost points on:"]
+    for r in losers:
+        gold = _clip(str(r.get("gold", "")), 60)
+        if r.get("error"):
+            lines.append(f"  - Q: {_clip(r['question'], 160)} | gold: {gold} | "
+                         f"ERROR: {_clip(r['error'], 120)}")
+        else:
+            lines.append(f"  - Q: {_clip(r['question'], 160)} | gold: {gold} | "
+                         f"got: {_clip(str(r.get('answer', '')), 80)} | score {r['score']:.2f}")
     return "\n".join(lines)
+
+
+def _clip(text: str, n: int) -> str:
+    """One-line, length-capped view of a field for the archive summary.
+
+    Args:
+        text: The field to render.
+        n: Longest result kept before an ellipsis is appended.
+
+    Returns:
+        `text` on one line, its runs of whitespace collapsed, truncated to `n`.
+    """
+    text = " ".join(str(text).split())
+    return text if len(text) <= n else text[:n] + "…"
 
 
 AGENT_COST = re.compile(r"\[agent cost: \$([0-9.]+) over (\d+) turns\]")
 
 
-def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
-                     on_cost=None) -> list[dict]:
-    """Run one design round and collect the workflows it proposed.
+def run_agent(agent_dir: pathlib.Path, log=print, on_cost=None) -> None:
+    """Run the proposer subprocess in `agent_dir`, streaming its output to `log`.
 
-    Stages a scratch directory, runs the agent there as a subprocess, and streams
-    its output to `log` as it goes.
+    Shared by the research and design phases: both drive a Claude Agent SDK
+    session the same way — spawn `workflow_optimizer.proposer` in the agent's
+    scratch directory (its cwd), echo every line it prints, and report what the
+    agent billed through the SDK. The caller stages the directory first and reads
+    whatever the agent wrote afterward.
 
     Args:
-        cfg: The run config.
-        benchmark: The Benchmark being optimized — supplies the task description,
-            grading rule and dev examples the agent may test against.
-        round_num: 1-based round number. Round 1 asks for a diverse initial set;
-            later rounds ask for cheaper workflows that hold accuracy.
-        context: `summarize_archive(...)` output. Ignored on round 1.
+        agent_dir: The scratch directory holding `proposer_config.json`.
         log: Where the agent's output goes, line by line.
-        on_cost: Optional `on_cost(usd, turns)`, called with what the agent spent
-            on itself. That spend goes through the SDK rather than our meter, so
-            this is the only place it can be seen.
-
-    Returns:
-        The proposed programs as `{"name", "description", "code"}` dicts. Possibly
-        empty if the agent produced nothing usable.
+        on_cost: Optional `on_cost(usd, turns)`, called with the agent's own spend.
+            That goes through the SDK rather than our meter, so this is the only
+            place it can be seen.
     """
-    agent_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"workflow_design_r{round_num}_"))
-    _stage_agent_dir(cfg, benchmark, agent_dir)
-
-    (agent_dir / "proposer_config.json").write_text(json.dumps({
-        "model": cfg.designer.model,
-        "skills": list(cfg.designer.skills),
-        "allowed_tools": list(cfg.designer.allowed_tools),
-        "prompt": _round_prompt(cfg, benchmark, round_num, context),
-    }))
-
     # The agent shells out to the eval skill, which imports workflow_optimizer;
     # both variables keep that working even if `python` on its PATH is not this
     # interpreter.
@@ -103,6 +182,44 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
             on_cost(float(found.group(1)), int(found.group(2)))
     process.wait()
 
+
+def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
+                     on_cost=None, research_notes: str = "") -> list[dict]:
+    """Run one design round and collect the workflows it proposed.
+
+    Stages a scratch directory, runs the agent there as a subprocess, and streams
+    its output to `log` as it goes.
+
+    Args:
+        cfg: The run config.
+        benchmark: The Benchmark being optimized — supplies the task description,
+            grading rule and dev examples the agent may test against.
+        round_num: 1-based round number. Round 1 asks for a diverse initial set;
+            later rounds hand over the whole archive and ask for new workflows
+            that extend the Pareto frontier.
+        context: `summarize_archive(...)` output. Ignored on round 1.
+        log: Where the agent's output goes, line by line.
+        on_cost: Optional `on_cost(usd, turns)`, called with what the agent spent
+            on itself. That spend goes through the SDK rather than our meter, so
+            this is the only place it can be seen.
+        research_notes: The research phase's `research_notes.md`, or "". Passed to
+            the round prompt so the designer builds on what was found for the task.
+
+    Returns:
+        The proposed programs as `{"name", "description", "code"}` dicts. Possibly
+        empty if the agent produced nothing usable.
+    """
+    agent_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"workflow_design_r{round_num}_"))
+    _stage_agent_dir(cfg, benchmark, agent_dir)
+
+    (agent_dir / "proposer_config.json").write_text(json.dumps({
+        "model": cfg.designer.model,
+        "skills": list(cfg.designer.skills),
+        "allowed_tools": list(cfg.designer.allowed_tools),
+        "prompt": _round_prompt(cfg, benchmark, round_num, context, research_notes),
+    }))
+
+    run_agent(agent_dir, log=log, on_cost=on_cost)
     return _collect_programs(agent_dir)
 
 
@@ -133,15 +250,18 @@ def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path) -> None:
         shutil.copytree(SKILLS_DIR / name, skills_dir / name)
 
 
-def _round_prompt(cfg, benchmark, round_num: int, context: str) -> str:
+def _round_prompt(cfg, benchmark, round_num: int, context: str,
+                  research_notes: str = "") -> str:
     """Build the prompt for one design round.
 
     Args:
         cfg: The run config, for the model list.
         benchmark: The task being optimized.
         round_num: 1-based round number; round 1 gets the "design a diverse set"
-            goal, later rounds the "make it cheaper" one.
+            goal, later rounds the "extend the frontier" one.
         context: `summarize_archive(...)` output, used from round 2 on.
+        research_notes: The research phase's findings, inlined so the designer
+            builds on them. "" when the research phase was skipped or found nothing.
 
     Returns:
         The full prompt for the agent.
@@ -181,6 +301,12 @@ def _round_prompt(cfg, benchmark, round_num: int, context: str) -> str:
               f"is not wasted — an expensive workflow that is much more accurate is "
               f"still worth knowing about — but at least one candidate should come in "
               f"under it.")
+
+    if research_notes.strip():
+        facts += ("\n\nResearch notes on what works for THIS task (gathered by web "
+                  "research before designing) — build on these, and don't spend "
+                  "candidates rediscovering what they report as wasted effort:\n"
+                  + research_notes.strip())
 
     goal = (prompts.render("design_goal_initial", description=benchmark.description)
             if round_num == 1 else

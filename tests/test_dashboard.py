@@ -161,6 +161,19 @@ def test_detail_of_an_unknown_run_is_not_found(runs_dir):
     assert server.run_detail("nope-20260101-000000") == {"error": "not_found"}
 
 
+def test_research_notes_round_trip_and_surface_in_the_detail(a_run):
+    assert runstore.read_research(a_run.run_id) == ""        # none until the phase runs
+    runstore.write_research(a_run.run_id, "# findings\nroute easy inputs to haiku")
+    assert "haiku" in runstore.read_research(a_run.run_id)
+    assert "haiku" in server.run_detail(a_run.run_id)["research"]
+
+
+def test_researching_is_a_phase(a_run):
+    # the UI renders PHASES as pills in order; research sits between analyze and design
+    assert runstore.PHASES.index("researching") == runstore.PHASES.index("analyzing") + 1
+    assert runstore.PHASES.index("researching") < runstore.PHASES.index("designing")
+
+
 def test_stopping_a_finished_run_says_so(a_run):
     runstore.update_status(a_run.run_id, state="done")
     assert runstore.stop_run(a_run.run_id)["ok"] is False

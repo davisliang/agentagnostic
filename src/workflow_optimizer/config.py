@@ -120,15 +120,34 @@ class DesignerConfig:
     Attributes:
         model: The model the design agent runs on.
         rounds: How many design rounds to run. Each one costs real money.
+        research: Whether to run the web-research phase before designing — a
+            Claude Agent SDK session that studies what works for this task online,
+            reads as many sources as it needs, and writes `research_notes.md`,
+            which is then handed to every design round. Set false to skip it (an
+            extra agent session; on by default so designs build on prior art, not
+            only what the model already carries in its weights).
         dev_sample_size: How many dev examples the agent may self-test against
             while iterating.
+        failures_shown: How many of each candidate's worst dev examples to hand
+            the next round, so it can see WHERE existing designs break — the
+            signal a scalar accuracy hides — not just that they scored what they
+            scored.
+        dominated_shown: How many off-frontier (dominated) candidates to include
+            alongside the archive handed to the next round. Every frontier
+            candidate is always shown — those are the points a new design must
+            beat — but the dominated ones are capped, most-recent first, so the
+            prompt stays bounded as the archive grows over rounds. What was
+            dropped is stated, never silently truncated.
         skills: Skill directories under `skills/` staged into the agent's
             `.claude/skills/` each round.
         allowed_tools: Tools the agent is permitted to use.
     """
     model: str = "claude-opus-4-8"
     rounds: int = 3
+    research: bool = True
     dev_sample_size: int = 5
+    failures_shown: int = 4
+    dominated_shown: int = 10
     skills: list[str] = field(
         default_factory=lambda: ["workflow-design", "workflow-eval", "workflow-naming"])
     allowed_tools: list[str] = field(

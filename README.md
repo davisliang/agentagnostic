@@ -45,10 +45,10 @@ searches, watches them run, and compares what they found:
   closed-book task so no candidate can look answers up, and its numbers stay
   comparable to a closed-book baseline. Only the listed settings are accepted
   from the form; everything else comes from config.
-- **Live progress** — phase pills (analyzing → designing round *i* → ranking →
-  done), candidates appearing with dev accuracy and cost as they are scored, and
-  the raw log including the design agent's own output. **Stop** kills the run and
-  the agent with it.
+- **Live progress** — phase pills (analyzing → researching → designing round *i* →
+  ranking → done), the research notes the agent wrote for the task, candidates
+  appearing with dev accuracy and cost as they are scored, and the raw log including
+  the design agent's own output. **Stop** kills the run and the agent with it.
 - **Results** — an accuracy-vs-cost plot with the frontier drawn through it, a
   candidate table with dev and test scores side by side, and each workflow's
   source on click.
@@ -71,7 +71,8 @@ searches, watches them run, and compares what they found:
   haiku / opus / router / oracle accuracies are drawn as reference lines.
 
 Runs live in `runs/<run_id>/` — the resolved config, a status header, an
-append-only event log, the raw log, per-candidate call traces, and the result.
+append-only event log, the raw log, the research notes, per-candidate call
+traces, and the result.
 The server holds no state of its own: it reads those files, and each search runs
 in its own subprocess. Restart the server mid-search and the page picks up where
 it was.
@@ -153,15 +154,25 @@ things, and all the generality rides on them:
    for a generic judge if it doesn't discriminate. `dataset` generates labeled
    examples if you didn't supply any, split into **dev** and held-out **test**. A task
    that already knows its own shape sets `task.description` in config and skips this.
-2. **Design and optimize** (`designer`, `optimizer`) — a **Claude Agent SDK** agent
-   runs once per round, driven by the three skills below. Round 1 designs a diverse
-   initial set; each later round is shown the best workflows so far and asked for
-   **cheaper** ones that hold accuracy (a cheaper model, fewer calls, difficulty
-   routing, code execution instead of many samples). Every candidate is scored on dev
-   and added to the archive.
-3. **Rank finalists** — the dev frontier is re-scored on the **held-out test split**,
+2. **Research the task** (`research`) — before any workflow is written, a **Claude
+   Agent SDK** agent searches the web for how this kind of task is best approached,
+   reads as many sources as it needs, and writes `research_notes.md`. Those notes are
+   handed to every design round, so designs build on known-good techniques rather than
+   only on what the model already carries in its weights. Skipped with
+   `designer.research=false`.
+3. **Design and optimize** (`designer`, `optimizer`) — a **Claude Agent SDK** agent
+   runs once per round, driven by the three skills below and the research notes. Round 1
+   designs a diverse initial set; each later round is shown the **archive so far** —
+   every frontier workflow's code, its dev accuracy and cost, and the dev examples it
+   got wrong, plus recent dominated near-misses (`designer.dominated_shown` caps how
+   many) — and asked for new ones that **extend the accuracy/cost frontier**: cheaper at
+   a given accuracy, more accurate at a given cost, or filling a gap (a cheaper model,
+   fewer calls, difficulty routing, code execution instead of many samples). Feeding
+   back the per-example failures, not just a scalar accuracy, is what tells a new design
+   where the current ones break. Every candidate is scored on dev and added to the archive.
+4. **Rank finalists** — the dev frontier is re-scored on the **held-out test split**,
    for numbers nothing was tuned against.
-4. **Choose** (`report`) — the frontier, the two constrained picks (*the best workflow
+5. **Choose** (`report`) — the frontier, the two constrained picks (*the best workflow
    I can afford*, *the cheapest one that's good enough*), a plot, and each finalist's
    code.
 
@@ -173,6 +184,7 @@ config/                 every knob (OmegaConf)
   task/*.yaml           one file per task: the seed prompt, optional data + grader
 prompts/*.md            every prompt sent to a model, as text (${placeholders})
 skills/                 what the design agent is taught
+  workflow-research/    research what works for a task, write research_notes.md
   workflow-design/      the methodology and the program contract
   workflow-eval/        the dev evaluator (a wrapper over the same runtime)
   workflow-naming/      naming workflows by structure, so results tables compare
@@ -186,7 +198,8 @@ src/workflow_optimizer/
   runtime.py            Reply, CallMeter, compile_solve, Evaluator, SplitScore
   analysis.py           what is this task, and how is an answer graded
   dataset.py            load the task's examples, or generate diverse ones
-  designer.py           stage and run one design round
+  research.py           research the task online, write research_notes.md
+  designer.py           stage and run one design round (and the shared agent runner)
   proposer.py           the agent subprocess entry point
   optimizer.py          Candidate, Search — the round loop and the archive
   pareto.py             frontier + the two constrained picks

@@ -1,14 +1,17 @@
-"""Step 3 — loop the design agent, then rank the survivors on held-out test.
+"""Step 3 — research the task, loop the design agent, then rank on held-out test.
 
-Each round the agent is shown the best workflows so far and asked for cheaper
-ones that hold accuracy; every candidate is scored on dev and added to the
-archive. Only the dev Pareto frontier is re-scored on test — those are the
-candidates actually worth choosing between, and test calls cost money.
+When `designer.research` is set, a web-research phase runs first and its
+`research_notes.md` is handed to every round. Each round the agent is shown every
+workflow tried so far — code, dev scores, and
+the examples each got wrong — and asked for new ones that extend the frontier;
+every candidate is scored on dev and added to the archive. Only the dev Pareto
+frontier is re-scored on test — those are the candidates actually worth choosing
+between, and test calls cost money.
 """
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import designer
+from . import designer, research
 from .analysis import Benchmark
 from .pareto import pareto_front
 from .runtime import Evaluator, SplitScore
@@ -58,8 +61,9 @@ class Search:
 
 
 def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
-             on_event=None, on_scored=None, search: "Search" = None) -> Search:
-    """Design candidates, score them on dev, then rank the frontier on test.
+             on_event=None, on_scored=None, on_research=None,
+             search: "Search" = None) -> Search:
+    """Research the task, design candidates, score them on dev, rank on test.
 
     Args:
         cfg: The run config; `cfg.designer.rounds` sets how many rounds run.
@@ -74,6 +78,10 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
             a candidate is scored, with the SplitScore itself. That carries the
             per-example records and every model call, which are too large for the
             event stream — a caller that wants them writes them somewhere.
+        on_research: Optional `on_research(notes)` called once with the research
+            phase's `research_notes.md` text, so a caller can persist it. The notes
+            can be large, which is why they go through a callback rather than the
+            event stream.
         search: An existing Search to fill in. Pass one and the caller keeps a
             reference to the archive as it grows, so a run that is stopped or
             crashes half way can still report what it had already scored — a
@@ -85,16 +93,31 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
     evaluator = evaluator or Session.from_config(cfg).evaluator(benchmark.grader)
     emit = on_event or (lambda event: None)
     scored = on_scored or (lambda candidate, split, score: None)
+    save_research = on_research or (lambda notes: None)
     search = search if search is not None else Search()
+
+    research_notes = ""
+    if cfg.designer.research:
+        log("\n===== research =====")
+        emit({"event": "researching"})
+        research_notes = research.run_research(
+            cfg, benchmark, log=log,
+            on_cost=lambda usd, turns: emit(
+                {"event": "agent_cost", "round": 0, "usd": usd, "turns": turns}))
+        save_research(research_notes)
+        log(f"research notes: {len(research_notes)} chars")
+        emit({"event": "researched", "chars": len(research_notes)})
 
     for round_num in range(1, cfg.designer.rounds + 1):
         log(f"\n===== design round {round_num} / {cfg.designer.rounds} =====")
         emit({"event": "round_start", "round": round_num, "rounds": cfg.designer.rounds})
-        context = designer.summarize_archive(search.archive)      # empty on round 1
+        context = designer.summarize_archive(          # empty on round 1
+            search.archive, cfg.designer.failures_shown, cfg.designer.dominated_shown)
         report_cost = lambda usd, turns: emit(
             {"event": "agent_cost", "round": round_num, "usd": usd, "turns": turns})
         for program in designer.run_design_round(cfg, benchmark, round_num, context,
-                                                 log=log, on_cost=report_cost):
+                                                 log=log, on_cost=report_cost,
+                                                 research_notes=research_notes):
             if any(program["code"] == c.code for c in search.archive):   # skip exact repeats
                 continue
             candidate = Candidate(name=_unique_name(program["name"], search.archive),

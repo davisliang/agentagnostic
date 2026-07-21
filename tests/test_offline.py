@@ -279,7 +279,7 @@ def test_the_agent_dir_has_everything_the_eval_skill_reads(cfg, tmp_path):
     assert load_resolved(tmp_path / "run_config.yaml").runtime.max_model_calls == cfg.runtime.max_model_calls
 
 
-def test_round_one_asks_for_diversity_and_later_rounds_ask_for_cheaper(cfg):
+def test_round_one_asks_for_diversity_and_later_rounds_extend_the_frontier(cfg):
     benchmark = benchmark_fixture()
     first = _round_prompt(cfg, benchmark, 1, "")
     assert "DIVERSE" in first and "claude-haiku-4-5" in first
@@ -287,16 +287,66 @@ def test_round_one_asks_for_diversity_and_later_rounds_ask_for_cheaper(cfg):
 
     archive = [Candidate("H", "", "code-a", dev=SplitScore("H", 0.8, 0.001))]
     later = _round_prompt(cfg, benchmark, 2, summarize_archive(archive))
-    assert "cost LESS per query" in later and "code-a" in later
+    assert "Pareto frontier" in later and "code-a" in later     # extend, not just cheapen
+    assert "ON FRONTIER" in later                               # its one candidate is on it
 
 
-def test_the_archive_summary_shows_the_frontier_and_the_best_code():
+def test_research_notes_are_handed_to_the_design_agent(cfg):
+    benchmark = benchmark_fixture()
+    marker = "SELF-CONSISTENCY OF 3 IS THE KNOWN WIN HERE"
+    with_notes = _round_prompt(cfg, benchmark, 1, "", research_notes=marker)
+    assert marker in with_notes                       # the designer sees what research found
+    assert marker not in _round_prompt(cfg, benchmark, 1, "")   # and nothing leaks when skipped
+
+
+def test_research_collect_notes_reads_the_file_or_returns_empty(tmp_path):
+    from workflow_optimizer.research import _collect_notes
+    assert _collect_notes(tmp_path) == ""             # no file yet -> "", not an error
+    (tmp_path / "research_notes.md").write_text("# findings\nuse a cheap→opus cascade")
+    assert "cascade" in _collect_notes(tmp_path)
+
+
+def test_the_archive_summary_gives_the_full_set_and_marks_the_frontier():
     archive = [Candidate("H", "", "cheap-code", dev=SplitScore("H", 0.70, 0.0002)),
                Candidate("S", "", "good-code", dev=SplitScore("S", 0.90, 0.0010)),
                Candidate("D", "", "dud-code", dev=SplitScore("D", 0.60, 0.0050))]
     summary = summarize_archive(archive)
-    assert "dud-code" not in summary              # dominated: not worth the agent's context
-    assert "good-code" in summary                 # the most accurate, as a base to improve on
+    # the whole set is handed over now, dominated ones included, so a new design
+    # can borrow from any of them
+    assert all(code in summary for code in ("cheap-code", "good-code", "dud-code"))
+    # the frontier is marked so the agent knows which points it has to beat; D is
+    # dominated by both H (cheaper and more accurate) and S, so only H and S carry it
+    assert summary.count("[ON FRONTIER]") == 2
+
+
+def test_the_archive_summary_caps_dominated_but_keeps_all_frontier():
+    # BEST is cheapest AND most accurate, so it dominates every dud and is the
+    # sole frontier; the 15 duds are all off-frontier.
+    best = Candidate("BEST", "", "code-best", dev=SplitScore("BEST", 0.99, 0.0001))
+    duds = [Candidate(f"d{i}", "", f"DUD_{i}_", dev=SplitScore(f"d{i}", 0.50, 0.0010))
+            for i in range(15)]
+    summary = summarize_archive([best] + duds, dominated_shown=3)
+
+    assert summary.count("[ON FRONTIER]") == 1 and "code-best" in summary
+    shown = sum(1 for i in range(15) if f"DUD_{i}_" in summary)
+    assert shown == 3                                    # only the cap's worth of dominated
+    assert "DUD_14_" in summary and "DUD_0_" not in summary   # most recent are the ones kept
+    assert "12 more dominated" in summary                # and the drop is stated, not silent
+
+
+def test_the_archive_summary_surfaces_a_candidates_dev_failures():
+    records = [
+        {"question": "2+2?", "gold": "4", "answer": "4", "score": 1.0, "error": None},
+        {"question": "3*5?", "gold": "15", "answer": "15 apples", "score": 0.0, "error": None},
+        {"question": "9-1?", "gold": "8", "answer": "", "score": 0.0,
+         "error": "RuntimeError: workflow exceeded its model-call budget"},
+    ]
+    summary = summarize_archive(
+        [Candidate("W", "", "code", dev=SplitScore("W", 0.33, 0.001, records=records))])
+    assert "Lost points on" in summary
+    assert "15 apples" in summary          # the wrong answer, so the agent sees the format bug
+    assert "model-call budget" in summary  # the error, so it sees the budget blow-up
+    assert "2+2" not in summary            # the example it got right is not fed back as noise
 
 
 # ---- a broken grader must not read as a run of zeros ------------------------

@@ -8,11 +8,12 @@ mid-run and the page still shows the run progressing.
 One directory per run:
 
     runs/<run_id>/
-      config.yaml     the fully resolved config the run was started with
-      status.json     phase, counts, timings — the whole header in one read
-      events.jsonl    one JSON object per milestone, append-only
-      log.txt         raw stdout of the pipeline, including the design agent's
-      result.json     the finished search (report.save output)
+      config.yaml        the fully resolved config the run was started with
+      status.json        phase, counts, timings — the whole header in one read
+      events.jsonl       one JSON object per milestone, append-only
+      log.txt            raw stdout of the pipeline, including the design agent's
+      research_notes.md  what the research phase found for this task, if it ran
+      result.json        the finished search (report.save output)
 """
 import hashlib
 import json
@@ -31,7 +32,7 @@ from .paths import CONFIG_DIR, ROOT
 RUNS_DIR = ROOT / "runs"
 
 # Phases a run moves through, in order. The UI renders these as pills.
-PHASES = ["queued", "analyzing", "designing", "ranking", "done"]
+PHASES = ["queued", "analyzing", "researching", "designing", "ranking", "done"]
 
 
 @dataclass
@@ -348,6 +349,29 @@ def read_config_text(run_id: str) -> str:
         The YAML as text, or "" if it is missing.
     """
     path = run_dir(run_id) / "config.yaml"
+    return path.read_text() if path.exists() else ""
+
+
+def write_research(run_id: str, notes: str) -> None:
+    """Save the research phase's notes for a run.
+
+    Args:
+        run_id: The run these belong to.
+        notes: The `research_notes.md` text the research agent produced.
+    """
+    (run_dir(run_id) / "research_notes.md").write_text(notes or "")
+
+
+def read_research(run_id: str) -> str:
+    """Read a run's research notes.
+
+    Args:
+        run_id: The run to read.
+
+    Returns:
+        The notes text, or "" if the research phase didn't run or wrote nothing.
+    """
+    path = run_dir(run_id) / "research_notes.md"
     return path.read_text() if path.exists() else ""
 
 
