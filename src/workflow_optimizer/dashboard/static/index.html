@@ -244,28 +244,38 @@ async function fillTasks() {
 // Which server-side tools a workflow may call. Left at the task default unless
 // touched; unchecking web_search makes a benchmark closed-book, so its numbers
 // stay comparable to a closed-book baseline.
-// A multi-select dropdown listing every server-side tool from the registry.
-// Hold ⌘/Ctrl to pick several; select none for a closed-book task.
+// A checkbox per server-side tool from the registry — tick one to grant a
+// workflow access to it. What each does: web_search finds pages (issues a query,
+// returns results), web_fetch reads a page already in the prompt, code_execution
+// runs Python.
+const TOOL_HELP = {
+  web_search: "search the web — finds pages and new URLs from a query",
+  web_fetch: "fetch a URL already in the prompt — reads one page in full",
+  code_execution: "run Python in a sandbox",
+};
+
 function renderTools() {
   const box = document.getElementById("f-tools");
   if (!box) return;
   const current = toolChoice || defaultTools();
-  const size = Math.max(2, workflowTools.length);
   box.innerHTML = `<label>tools workflows may use</label>
-    <select id="f-toollist" multiple size="${size}" onchange="onToolsChange(this)"
-      style="width:100%;background:#0a0e14;color:#cfd6e4;border:1px solid #2a313c;
-             border-radius:4px;padding:4px;font:inherit;font-size:12px">` +
-    workflowTools.map(name =>
-      `<option value="${esc(name)}" ${current.includes(name) ? "selected" : ""}>${esc(name)}</option>`).join("") +
-    `</select>
-    <div class="desc" style="margin-top:2px">Select none for a closed-book task, so no
+    <div style="display:flex;flex-direction:column;gap:4px">` +
+    workflowTools.map(name => `<label style="display:flex;gap:6px;align-items:baseline;
+        text-transform:none;color:#bdc4d3;font-size:12px;margin:0">
+      <input type="checkbox" data-tool="${esc(name)}" ${current.includes(name) ? "checked" : ""}
+        onchange="toggleTool('${esc(name)}',this.checked)" style="width:auto;flex:none">
+      <span><span style="font-family:ui-monospace,Menlo,monospace">${esc(name)}</span>
+        <span style="color:#7c8699"> — ${esc(TOOL_HELP[name] || "")}</span></span></label>`).join("") +
+    `</div>
+    <div class="desc" style="margin-top:4px">Untick all for a closed-book task, so no
        candidate can look answers up or run code — the design agent is told what's available.
        The web tools bundle their own code execution, so they can't be combined with
        code_execution in one call.</div>`;
 }
 
-function onToolsChange(sel) {
-  toolChoice = [...sel.selectedOptions].map(o => o.value);
+function toggleTool(name, on) {
+  const base = (toolChoice || defaultTools()).slice();
+  toolChoice = on ? [...new Set([...base, name])] : base.filter(t => t !== name);
 }
 
 function defaultTools() {
