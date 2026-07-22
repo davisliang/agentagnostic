@@ -116,9 +116,16 @@ ported from routerllm so a score means the same thing), `judge` → our LLM judg
 Other tasks are built the same way by their own scripts, each freezing a
 `benchmark.yaml` + `data.jsonl` + `config/task/<name>.yaml` and its grader:
 `scripts/make_game24.py` (a solver-generated puzzle set), `scripts/import_fanoutqa.py`
-(fan-out multi-hop QA, plus a judge-graded variant), and `scripts/build_news_current.py`
+(fan-out multi-hop QA, plus a judge-graded variant), `scripts/build_news_current.py`
 / `scripts/build_news_multihop.py` (recent-news QA frozen from a sourced,
-timestamped `sources.json`).
+timestamped `sources.json`), and `scripts/build_ml_papers.py` (problem→solution
+pairs extracted from last month's arXiv ML abstracts, keeping only the pairs
+whose problem and approach are both clearly stated; judge-graded against each
+paper's actual approach). The time-sensitive benchmarks carry their freeze date
+in their **name** — `news_current_20260721`, `ml_papers_<as_of>` — so the name
+itself says when the data goes stale and should be recycled; refreshing the
+sources and re-running a builder writes a new stamped benchmark beside the old
+one.
 
 Three tasks are graded natively by machinery that needs more than a prompt and
 an answer. `ifeval` works through the existing checker in `experiments/`.

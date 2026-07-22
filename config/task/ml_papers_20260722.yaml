@@ -1,0 +1,21 @@
+# Problem -> solution over cited (>10 citations) post-cutoff arXiv ML papers.
+# The papers post-date the Jan 2026 training cutoff of the newest catalog
+# models, so the reference solutions cannot be recalled — but they COULD be
+# searched, which is why the task is closed-book: it measures whether a
+# workflow can reason its way to an approach, not whether it can find the PDF.
+# Timestamped: papers submitted 2026-02-01:2026-07-22.
+task:
+  name: ml_papers_20260722
+  description: >-
+    You are given a research problem in machine learning. Propose a concrete technical approach that solves it: the key idea and mechanism, in a few sentences. Answer with the proposed approach only — no preamble.
+  check_type: llm_judge
+  dataset: benchmarks/ml_papers_20260722/data.jsonl
+  judge_rubric: >-
+    The reference answer is the approach a recent research paper actually took for this problem. Score whether the candidate independently arrives at the reference approach's core technical idea: 90-100 = same key mechanism or idea, even if worded differently; 60-80 = overlaps on the central idea but misses or replaces key components; 30-50 = a plausible generic approach that does not capture what makes the reference work; 0-20 = vague, restates the problem, or technically incoherent. Judge substance, not style or length.
+  answer_examples:
+    - "Train a small router on embedding features to send easy queries to the cheap model and only escalate uncertain ones, using agreement between two cheap samples as the uncertainty signal."
+    - "Replace the dense attention over the full context with a two-stage scheme: a lightweight scorer selects the top-k relevant blocks, and full attention runs only within the selected blocks."
+runtime:
+  tools: []          # closed-book: the papers are online, looking them up is cheating
+data:
+  n_examples: 100     # use all of them (100 kept pairs)

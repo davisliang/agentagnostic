@@ -1,0 +1,1008 @@
+{
+ "as_of": "2026-07-22",
+ "window": "2026-02-01:2026-07-22",
+ "min_citations": 10,
+ "cutoff_basis": "training data cutoff of claude-sonnet-5 / claude-opus-4-8 (Jan 2026, per the Anthropic model overview)",
+ "items": [
+  {
+   "arxiv_id": "2604.12002",
+   "title": "Self-Distillation Zero: Self-Revision Turns Binary Rewards into Dense Supervision",
+   "published": "2026-04-13",
+   "url": "https://arxiv.org/abs/2604.12002",
+   "citations": 31,
+   "primary_category": "cs.CL",
+   "problem": "In verifiable reasoning tasks such as math and code generation, reinforcement learning with verifiable rewards provides only sparse, response-level binary feedback, while methods that give dense token-level training signal typically require an external teacher model or curated high-quality demonstrations that can be costly or unavailable. It is unclear how to obtain dense, informative supervision from binary rewards alone without any outside teacher or demonstration data.",
+   "solution": "Train a single model to play two roles: a Generator that produces an initial response, and a Reviser that conditions on that response plus its binary reward to produce an improved response. On-policy self-distillation then distills the Reviser's token-level output distributions into the Generator as dense supervision, effectively converting binary rewards into dense self-generated training signal, with periodic teacher resynchronization enabling iterative self-improvement."
+  },
+  {
+   "arxiv_id": "2603.14482",
+   "title": "V-JEPA 2.1: Unlocking Dense Features in Video Self-Supervised Learning",
+   "published": "2026-03-15",
+   "url": "https://arxiv.org/abs/2603.14482",
+   "citations": 44,
+   "primary_category": "cs.CV",
+   "problem": "Self-supervised video representation learning methods often struggle to simultaneously capture dense, spatially and temporally grounded local detail while retaining strong global scene-level understanding, which limits their usefulness for downstream tasks like action anticipation, depth estimation, robotic manipulation, and navigation that need both fine-grained and holistic visual understanding.",
+   "solution": "Combine a dense predictive masking objective in which both visible and masked tokens contribute to the training loss to encourage explicit spatial and temporal grounding, deep self-supervision applied hierarchically across multiple intermediate encoder layers, multi-modal tokenizers that unify image and video training, and increased model and data scale, jointly producing representations that are spatially structured, semantically coherent, and temporally consistent."
+  },
+  {
+   "arxiv_id": "2602.10253",
+   "title": "The Complexity of Bayesian Network Learning: Revisiting the Superstructure",
+   "published": "2026-02-10",
+   "url": "https://arxiv.org/abs/2602.10253",
+   "citations": 32,
+   "primary_category": "cs.DS",
+   "problem": "Bayesian Network Structure Learning seeks an optimal network structure consistent with a given candidate-edge graph (the superstructure) and a scoring function, but it is known to be computationally hard in general, and prior work showed it remains intractable even when parameterized by natural measures such as the vertex cover number of the superstructure. It is unclear which structural restrictions on the input allow efficient parameterized algorithms, and how this depends on how the input scoring function is represented.",
+   "solution": "Prove that the problem becomes fixed-parameter tractable when parameterized by the feedback edge set size of the superstructure (and a localized variant of it), establish matching lower bounds for other graph parameters to give a complete complexity classification, and show that replacing the standard 'non-zero' score representation with an 'additive' representation yields fixed-parameter tractability under much weaker restrictions, namely treewidth alone, with the results extended to the related Polytree Learning problem."
+  },
+  {
+   "arxiv_id": "2604.08618",
+   "title": "SkillForge: Forging Domain-Specific, Self-Evolving Agent Skills in Cloud Technical Support",
+   "published": "2026-04-09",
+   "url": "https://arxiv.org/abs/2604.08618",
+   "citations": 19,
+   "primary_category": "cs.IR",
+   "problem": "In enterprise settings such as cloud technical support, LLM agents rely on domain-specific 'skills,' but automatically generated skills are often poorly grounded in real-world task requirements, and once deployed there is no systematic way to trace execution failures back to the specific skill deficiencies that caused them\u2014leaving skill quality stagnant despite accumulating operational data.",
+   "solution": "SkillForge closes an end-to-end creation-evaluation-refinement loop: a Domain-Contextualized Skill Creator grounds initial skill synthesis in knowledge bases and historical support tickets for better alignment, while a three-stage pipeline (Failure Analyzer, Skill Diagnostician, Skill Optimizer) automatically analyzes batches of execution failures, pinpoints the underlying skill deficiency, and rewrites the skill to fix it. This cycle repeats across deployment rounds, letting skills self-improve continuously from operational feedback."
+  },
+  {
+   "arxiv_id": "2602.11139",
+   "title": "TabICLv2: A better, faster, scalable, and open tabular foundation model",
+   "published": "2026-02-11",
+   "url": "https://arxiv.org/abs/2602.11139",
+   "citations": 65,
+   "primary_category": "cs.LG",
+   "problem": "Tabular foundation models using in-context learning have begun to outperform gradient-boosted trees, but achieving further gains requires overcoming limits in pretraining data diversity, architectural scalability to large datasets, and training efficiency, without resorting to costly hyperparameter tuning or fine-tuning on real data at deployment time.",
+   "solution": "TabICLv2 combines a novel synthetic data generation engine designed for high pretraining diversity, architectural innovations including a new scalable softmax attention mechanism that improves generalization to larger datasets without requiring prohibitively long-sequence pretraining, and an optimized pretraining protocol that replaces AdamW with the Muon optimizer. Together these let the model surpass tuned, ensembled, fine-tuned baselines out-of-the-box while scaling to million-row datasets under modest GPU memory."
+  },
+  {
+   "arxiv_id": "2602.20133",
+   "title": "AdaEvolve: Adaptive LLM Driven Zeroth-Order Optimization",
+   "published": "2026-02-23",
+   "url": "https://arxiv.org/abs/2602.20133",
+   "citations": 36,
+   "primary_category": "cs.NE",
+   "problem": "Evolutionary program-search systems that use large language models as mutation operators typically follow static, hand-tuned exploration schedules that ignore how the search process's dynamics change over time, wasting compute on stagnating candidate populations while under-exploiting promising ones.",
+   "solution": "AdaEvolve reformulates LLM-driven evolution as hierarchical adaptive optimization driven by an 'accumulated improvement signal' operating at three levels: Local Adaptation dynamically tunes exploration intensity within a candidate population, Global Adaptation uses bandit-based scheduling to route the global compute budget across different populations, and Meta-Guidance generates new solution tactics from prior solutions and their improvements when progress stalls."
+  },
+  {
+   "arxiv_id": "2602.10098",
+   "title": "VLA-JEPA: Enhancing Vision-Language-Action Model with Latent World Model",
+   "published": "2026-02-10",
+   "url": "https://arxiv.org/abs/2602.10098",
+   "citations": 39,
+   "primary_category": "cs.RO",
+   "problem": "Pretraining vision-language-action policies on large-scale internet video is appealing for learning general manipulation priors, but existing latent-action learning objectives tend to remain anchored to raw pixel variation rather than action-relevant state transitions, making the learned representations vulnerable to appearance bias, irrelevant motion, and leakage of future information.",
+   "solution": "VLA-JEPA uses a JEPA-style pretraining objective with leakage-free state prediction: a target encoder produces latent representations of future frames purely as supervision targets, while the student pathway sees only the current observation and never the future frames as input. Predicting in latent space rather than pixel space yields dynamics representations robust to camera motion and background changes, using a simple two-stage recipe of JEPA pretraining followed by action-head fine-tuning."
+  },
+  {
+   "arxiv_id": "2604.12483",
+   "title": "Elastic Net Regularization and Gabor Dictionary for Classification of Heart Sound Signals using Deep Learning",
+   "published": "2026-04-14",
+   "url": "https://arxiv.org/abs/2604.12483",
+   "citations": 23,
+   "primary_category": "cs.SD",
+   "problem": "Automatically classifying heart valvular conditions from phonocardiogram (heart sound) signals requires time-frequency feature representations that are both discriminative and well-regularized, and it is unclear how the resolution of the time-frequency decomposition and the regularization of the fitting model jointly affect downstream deep-learning classification performance.",
+   "solution": "Heart sound signals are decomposed using an overcomplete dictionary of Gabor atoms fit via elastic net-regularized linear models, producing time-frequency feature matrices whose atom resolution and sparsity level can be tuned. These features are fed into two deep architectures\u2014a 1D CNN+LSTM and a combined 1D/2D CNN+LSTM\u2014trained with SGDM and Adam, with the best accuracy (98.95%) obtained using high-time/low-frequency resolution Gabor atoms and sparsity-inducing regularization with the second architecture trained via Adam."
+  },
+  {
+   "arxiv_id": "2603.20179",
+   "title": "AI Agents Can Already Autonomously Perform Experimental High Energy Physics",
+   "published": "2026-03-20",
+   "url": "https://arxiv.org/abs/2603.20179",
+   "citations": 14,
+   "primary_category": "hep-ex",
+   "problem": "Executing a complete experimental high-energy-physics analysis\u2014spanning event selection, background estimation, uncertainty quantification, statistical inference, and manuscript drafting\u2014traditionally requires substantial expert-curated scaffolding, and it is unclear whether current AI agents can autonomously carry out these stages end-to-end on real collider data without task-specific hand-holding.",
+   "solution": "The approach introduces 'Just Furnish Context' (JFC), a framework that couples an autonomous coding agent with literature-based knowledge retrieval and multi-agent review, giving the agent access to a dataset, an execution environment, and prior papers so it can plan and execute the full analysis pipeline itself. It is validated on open ALEPH, DELPHI, and CMS data, reproducing established electroweak/QCD/Higgs results and producing a novel Lund-plane measurement on LEP data."
+  },
+  {
+   "arxiv_id": "2603.01977",
+   "title": "Quantitative Convergence of Wasserstein Gradient Flows of Kernel Mean Discrepancies",
+   "published": "2026-03-02",
+   "url": "https://arxiv.org/abs/2603.01977",
+   "citations": 12,
+   "primary_category": "math.AP",
+   "problem": "The quantitative, non-asymptotic convergence behavior of Wasserstein gradient flows for Kernel Mean Discrepancy (Maximum Mean Discrepancy) functionals\u2014which govern training dynamics of infinite-width shallow neural networks and mean-field interacting particle systems with Riesz-kernel interactions\u2014was largely unknown beyond a few special cases, leaving open whether and how fast such flows converge to their target measure.",
+   "solution": "The approach establishes existence and uniqueness of these flows in weak regularity classes using techniques inspired by Yudovich theory for the 2D Euler equation, then proves global exponential convergence for the squared H^{-1} Sobolev-distance case and local polynomial convergence rates (explicit in the Sobolev order and the regularity of the measures) for higher-order Sobolev distances. It extends this analysis to shallow ReLU networks by casting their population-loss gradient flow as a Wasserstein-Fisher-Rao flow corresponding to a specific Sobolev exponent, yielding an explicit polynomial local convergence rate."
+  },
+  {
+   "arxiv_id": "2602.19411",
+   "title": "MACE-POLAR-1: A Polarisable Electrostatic Foundation Model for Molecular Chemistry",
+   "published": "2026-02-23",
+   "url": "https://arxiv.org/abs/2602.19411",
+   "citations": 15,
+   "primary_category": "physics.chem-ph",
+   "problem": "Most machine-learned interatomic potentials rely on local atomic descriptors that cannot represent long-range electrostatic interactions, charge transfer, or polarization, limiting their accuracy for non-covalent interactions, protein-ligand binding, and systems with varying charge or spin states in computational chemistry.",
+   "solution": "The approach extends the MACE equivariant message-passing architecture with an explicit long-range electrostatics module: local many-body geometric features are combined with a non-self-consistent-field scheme that iteratively updates learnable charge and spin densities to model polarizable induction, followed by global charge equilibration through learnable Fukui functions to enforce total charge and spin constraints. The model is trained on 100 million hybrid-DFT calculations from a large molecular dataset."
+  },
+  {
+   "arxiv_id": "2605.04326",
+   "title": "A foundation model of vision, audition, and language for in-silico neuroscience",
+   "published": "2026-05-05",
+   "url": "https://arxiv.org/abs/2605.04326",
+   "citations": 15,
+   "primary_category": "q-bio.NC",
+   "problem": "Cognitive neuroscience models of the human brain are typically built separately for each sensory modality and experimental paradigm, preventing a single unified account of how the brain processes naturalistic multisensory and linguistic input and limiting the ability to run controlled in-silico experiments across paradigms.",
+   "solution": "The approach trains a tri-modal (video, audio, language) foundation model on over 1,000 hours of fMRI data from 720 subjects to predict brain activity directly from naturalistic stimuli, substantially outperforming traditional linear encoding models. The trained model is then used to run in-silico replications of classic visual and neuro-linguistic experimental paradigms and to extract interpretable latent features mapping the topography of multisensory integration."
+  },
+  {
+   "arxiv_id": "2604.08358",
+   "title": "Scalable Neural Decoders for Practical Fault-Tolerant Quantum Computation",
+   "published": "2026-04-09",
+   "url": "https://arxiv.org/abs/2604.08358",
+   "citations": 16,
+   "primary_category": "quant-ph",
+   "problem": "Quantum low-density parity-check codes offer a promising path to fault-tolerant quantum computing, but decoding them requires classical algorithms that are simultaneously fast enough to keep up with quantum hardware cycle times and accurate enough to reach the extremely low logical error rates needed for large-scale algorithms. Existing decoding algorithms fail to jointly satisfy these speed and accuracy requirements at practical code sizes and physical error rates.",
+   "solution": "A convolutional neural network decoder is designed to exploit the geometric structure of the quantum code (e.g., the Gross code), processing syndrome data through convolutional layers that respect spatial locality. This decoder reaches logical error rates roughly 17x lower than prior decoders while running 3-5 orders of magnitude faster, and it also outputs well-calibrated confidence estimates that can shorten repeat-until-success decoding protocols."
+  },
+  {
+   "arxiv_id": "2605.29358",
+   "title": "Scaling Monosemanticity: Extracting Interpretable Features from Claude 3 Sonnet",
+   "published": "2026-05-28",
+   "url": "https://arxiv.org/abs/2605.29358",
+   "citations": 691,
+   "primary_category": "cs.AI",
+   "problem": "Determining whether individual neurons in large language models correspond to interpretable concepts is difficult because neurons are typically polysemantic, activating for many unrelated concepts due to superposition; it remained unknown whether dictionary-learning techniques used to disentangle small-model activations into interpretable units could scale to production-sized language models.",
+   "solution": "Sparse autoencoders with up to 34 million learned features are trained on the residual stream activations of a middle layer of a large production language model, with scaling laws used to select training hyperparameters. The resulting sparse feature dictionary yields interpretable, multilingual, and multimodal features (including abstract and safety-relevant concepts like deception and sycophancy) that can be used to causally steer model outputs by clamping their activations."
+  },
+  {
+   "arxiv_id": "2602.02474",
+   "title": "MemSkill: Learning and Evolving Memory Skills for Self-Evolving Agents",
+   "published": "2026-02-02",
+   "url": "https://arxiv.org/abs/2602.02474",
+   "citations": 83,
+   "primary_category": "cs.CL",
+   "problem": "Memory systems for large language model agents typically rely on a small, fixed set of hand-designed operations for extracting, consolidating, and pruning information from interaction histories, making them rigid across diverse interaction patterns and inefficient when processing long histories.",
+   "solution": "Memory operations are reframed as learnable, evolvable 'memory skills': a controller learns to select a small relevant subset of skills for a given context, an LLM-based executor applies the selected skills to produce memories, and a designer periodically reviews failure cases to propose refinements or entirely new skills. This forms a closed loop in which both the skill-selection policy and the skill set itself continuously improve."
+  },
+  {
+   "arxiv_id": "2603.16666",
+   "title": "Fast-WAM: Do World Action Models Need Test-time Future Imagination?",
+   "published": "2026-03-17",
+   "url": "https://arxiv.org/abs/2603.16666",
+   "citations": 111,
+   "primary_category": "cs.CV",
+   "problem": "Models that predict how visual observations evolve under robot actions typically generate explicit future video frames before executing an action, incurring substantial inference-time latency from iterative denoising, but it is unclear whether this explicit future imagination step at test time is actually necessary for strong control performance, as opposed to being a byproduct of training with video prediction objectives.",
+   "solution": "An architecture called Fast-WAM retains video prediction as a co-training objective during learning but discards the future-generation step entirely at test time, directly predicting actions from current observations. Comparisons across variants show this achieves competitive performance with imagine-then-execute models at over 4x lower latency, while removing video co-training (rather than removing test-time imagination) causes the larger performance drop, indicating video modeling's main benefit is shaping representations during training."
+  },
+  {
+   "arxiv_id": "2607.17461",
+   "title": "HyCoRec: Hypergraph-Enhanced Multi-Preference Learning for Alleviating Matthew Effect in Conversational Recommendation",
+   "published": "2026-07-20",
+   "url": "https://arxiv.org/abs/2607.17461",
+   "citations": 18,
+   "primary_category": "cs.IR",
+   "problem": "Recommender systems suffer from a Matthew effect where popular items become progressively overexposed while less popular items are neglected, and this imbalance compounds over successive turns in conversational recommendation settings where users interact with the system repeatedly over time, more so than in static recommendation scenarios.",
+   "solution": "A hypergraph-enhanced framework learns multiple aspect-specific user preferences\u2014over items, entities, words, reviews, and knowledge\u2014capturing higher-order relationships via hypergraph structures to balance exposure across popular and unpopular items. These multi-aspect preferences jointly inform both conversational response generation and item recommendation as the dialogue evolves."
+  },
+  {
+   "arxiv_id": "2602.05125",
+   "title": "Rethinking Rubric Generation for Improving LLM Judge and Reward Modeling for Open-ended Tasks",
+   "published": "2026-02-04",
+   "url": "https://arxiv.org/abs/2602.05125",
+   "citations": 30,
+   "primary_category": "cs.LG",
+   "problem": "Rubrics used to guide LLM judges and reward models on subjective, multi-dimensional open-ended tasks are difficult to generate reliably: they often lack coverage of relevant criteria, conflate multiple evaluation dimensions into single items, misalign on preference direction, or contain redundant, highly correlated criteria, all of which degrade judgment accuracy and reward quality.",
+   "solution": "A framework performs recursive decompose-filter cycles: coarse rubrics are decomposed into fine-grained, discriminative criteria to expand coverage, a filtering mechanism removes criteria that are misaligned or redundant, and a correlation-aware weighting scheme downweights highly correlated criteria to prevent over-representation, yielding a comprehensive yet non-redundant rubric set for both judging and reinforcement fine-tuning reward signals."
+  },
+  {
+   "arxiv_id": "2604.07639",
+   "title": "Exponential quantum advantage in processing massive classical data",
+   "published": "2026-04-08",
+   "url": "https://arxiv.org/abs/2604.07639",
+   "citations": 16,
+   "primary_category": "quant-ph",
+   "problem": "It is a long-standing open question whether quantum computers can provide broadly applicable, provable advantages over classical computers for practical classical data processing tasks like classification and dimension reduction on massive datasets, rather than only for artificial or narrow problems.",
+   "solution": "A small, polylogarithmic-size quantum computer processes streamed classical data samples using a technique called quantum oracle sketching, which accesses classical data in quantum superposition from random samples, and combines this with classical shadow tomography to build compact classical models for classification and dimension reduction; it is proven that any classical machine achieving matching prediction performance without this quantum access must be exponentially larger or require superpolynomially more time and samples."
+  },
+  {
+   "arxiv_id": "2605.08561",
+   "title": "CONTRA: Conformal Prediction Region via Normalizing Flow Transformation",
+   "published": "2026-05-08",
+   "url": "https://arxiv.org/abs/2605.08561",
+   "citations": 13,
+   "primary_category": "stat.ML",
+   "problem": "Conformal prediction methods offer prediction regions with guaranteed coverage probability, but they typically rely on scalar, one-dimensional nonconformity scores, which makes it difficult to construct accurate, tightly-shaped prediction regions for multi-dimensional outputs and usually forces the use of crude hyperrectangular or elliptical region shapes.",
+   "solution": "Map outputs into the latent space of a trained normalizing flow and define the nonconformity score as the distance from the latent center, so that high-density regions in the simple latent space translate back into sharp, non-elliptical prediction regions in the original output space; for cases where a different predictive model is preferred, fit a lightweight normalizing flow on that model's residuals to add the same guaranteed-coverage region construction on top of it."
+  },
+  {
+   "arxiv_id": "2604.15804",
+   "title": "Qwen3.5-Omni Technical Report",
+   "published": "2026-04-17",
+   "url": "https://arxiv.org/abs/2604.15804",
+   "citations": 74,
+   "primary_category": "cs.CL",
+   "problem": "Streaming text-to-speech synthesis in conversational multimodal models tends to suffer from unstable and unnatural-sounding output, largely because text tokens and speech tokens are produced or consumed at different rates, causing a mismatch between the text and speech tokenizers during generation.",
+   "solution": "Introduce ARIA, a mechanism that dynamically aligns text units and speech units during generation to reconcile their differing encoding rates, which stabilizes streaming speech synthesis and improves prosody while adding minimal latency, and is integrated into an omni-modal model with a hybrid attention mixture-of-experts architecture for its text-generating and speech-generating components."
+  },
+  {
+   "arxiv_id": "2603.17240",
+   "title": "GigaWorld-Policy: An Efficient Action-Centered World--Action Model",
+   "published": "2026-03-18",
+   "url": "https://arxiv.org/abs/2603.17240",
+   "citations": 58,
+   "primary_category": "cs.CV",
+   "problem": "Robot policy models built on video-generation backbones that jointly predict future visual frames and actions suffer from high inference latency and from motion predictions whose accuracy is entangled with, and limited by, the quality of the generated future video.",
+   "solution": "An action-centered world-action model is trained so the network predicts future action sequences directly from the current observation, while simultaneously generating future video conditioned on those predicted actions for auxiliary supervision. A causal architecture prevents future-video tokens from influencing action tokens, so video generation supervises training but can be skipped at inference, and the model is pre-trained as an action-centered video generator on a large curated robot dataset before being adapted into a policy, yielding much faster and more accurate action prediction."
+  },
+  {
+   "arxiv_id": "2605.05242",
+   "title": "Beyond Semantic Similarity: Rethinking Retrieval for Agentic Search via Direct Corpus Interaction",
+   "published": "2026-05-03",
+   "url": "https://arxiv.org/abs/2605.05242",
+   "citations": 14,
+   "primary_category": "cs.IR",
+   "problem": "Retrieval systems for search agents typically expose a corpus only through a fixed top-k similarity interface computed once before reasoning begins, which makes it hard to enforce exact lexical constraints, combine sparse weak clues, check local context, or recover evidence that was filtered out early \u2014 limitations that are especially damaging for agentic tasks requiring multi-step hypothesis refinement and discovery of intermediate entities.",
+   "solution": "Instead of using any embedding model, vector index, or retrieval API, an agent is given general-purpose terminal tools (grep, file reads, shell commands, lightweight scripts) to search and manipulate the raw corpus directly across multiple reasoning steps, a paradigm termed direct corpus interaction. This removes offline indexing entirely, lets the agent iteratively revise its search plan based on partial evidence, and is shown to outperform strong sparse, dense, and reranking retrieval baselines on several IR and agentic search benchmarks."
+  },
+  {
+   "arxiv_id": "2604.03789",
+   "title": "Automated Conjecture Resolution with Formal Verification",
+   "published": "2026-04-04",
+   "url": "https://arxiv.org/abs/2604.03789",
+   "citations": 35,
+   "primary_category": "cs.LG",
+   "problem": "Large language models can generate natural-language mathematical arguments for research-level problems, but such informal reasoning is inherently ambiguous and cannot be reliably trusted or verified as a correct proof without human expert checking.",
+   "solution": "A two-agent framework pairs an informal reasoning agent that uses reasoning primitives plus a dedicated theorem-search engine to explore strategies and draft candidate proofs, with a formal verification agent that uses its own theorem-search tool to translate the informal argument into a machine-checked Lean 4 formalization via task decomposition, iterative refinement, and automated proof synthesis. Operating together with essentially no human involvement, the two agents resolved and formally verified a proof for an open problem in commutative algebra, with the formal agent autonomously filling gaps left by the informal reasoning."
+  },
+  {
+   "arxiv_id": "2602.16873",
+   "title": "AdaptOrch: Task-Adaptive Multi-Agent Orchestration in the Era of LLM Performance Convergence",
+   "published": "2026-02-18",
+   "url": "https://arxiv.org/abs/2602.16873",
+   "citations": 11,
+   "primary_category": "cs.MA",
+   "problem": "As large language models from different providers reach increasingly similar benchmark performance, simply picking the single best individual model for a task gives progressively smaller gains, raising the question of what other system-level factor can be optimized to keep improving multi-agent system performance.",
+   "solution": "A formal framework dynamically selects among four coordination topologies (parallel, sequential, hierarchical, hybrid) for multi-agent orchestration based on a task's dependency graph and empirically measured domain characteristics. It includes a scaling law characterizing when topology choice matters more than model choice, a routing algorithm mapping task decomposition graphs to topologies in linear time, and an adaptive synthesis protocol with termination guarantees and consistency scoring to combine parallel agent outputs, yielding 12-23% gains over static single-topology baselines with identical underlying models."
+  },
+  {
+   "arxiv_id": "2603.02115",
+   "title": "Robometer: Scaling General-Purpose Robotic Reward Models via Trajectory Comparisons",
+   "published": "2026-03-02",
+   "url": "https://arxiv.org/abs/2603.02115",
+   "citations": 35,
+   "primary_category": "cs.RO",
+   "problem": "General-purpose reward models for robot learning are typically trained to predict absolute task progress from expert demonstrations using only local, frame-level labels, which does not scale to large real-world datasets containing abundant failed or suboptimal trajectories, since assigning dense progress labels to such trajectories is inherently ambiguous.",
+   "solution": "A reward-learning framework trains on both intra-trajectory and inter-trajectory signals: a frame-level progress loss anchors reward magnitude using expert data, while a trajectory-comparison preference loss enforces a global ordering across different trajectories of the same task, allowing effective learning from real and augmented failure data alongside successes. This dual-objective model is trained on a newly curated dataset of over one million trajectories spanning diverse embodiments and tasks, including substantial failure/suboptimal examples, producing rewards that generalize better across benchmarks and real robots than prior approaches."
+  },
+  {
+   "arxiv_id": "2604.09784",
+   "title": "Discrete Flow Maps",
+   "published": "2026-04-10",
+   "url": "https://arxiv.org/abs/2604.09784",
+   "citations": 11,
+   "primary_category": "stat.ML",
+   "problem": "Autoregressive next-token generation in language models is fundamentally sequential and slow, and while continuous flow-based generative models can in principle compress generation into fewer steps, applying their standard Euclidean regression training objectives to discrete text data is geometrically mismatched with the structure of discrete probability distributions.",
+   "solution": "A framework recasts flow-map training for the discrete domain by aligning the training objective with the geometry of the probability simplex rather than using Euclidean losses, compressing generative trajectories into single-step (or few-step) mappings that can in principle map noise to full text sequences in one forward pass. This geometrically consistent formulation is shown empirically to surpass prior state-of-the-art results in discrete flow-based language modeling."
+  },
+  {
+   "arxiv_id": "2602.15654",
+   "title": "Zombie Agents: Persistent Control of Self-Evolving LLM Agents via Self-Reinforcing Injections",
+   "published": "2026-02-17",
+   "url": "https://arxiv.org/abs/2602.15654",
+   "citations": 22,
+   "primary_category": "cs.CR",
+   "problem": "Agents that persist state across sessions by writing and reusing long-term memory can absorb untrusted external content (such as attacker-controlled web pages) encountered during an otherwise benign task, and later treat that stored content as trusted instruction; it is unclear whether a remote attacker with only indirect exposure to the agent (no direct prompt access) can exploit this to implant a payload that survives across sessions and repeatedly hijacks the agent's tool use.",
+   "solution": "A black-box two-phase attack is formalized: an infection phase where the agent reads a poisoned web source while completing a normal task and writes the attacker's payload into its long-term memory through its own standard update process, and a trigger phase where the payload is later retrieved or carried forward to induce unauthorized tool actions. Mechanism-specific persistence strategies are crafted for common memory designs (sliding-window and retrieval-augmented memory) so the payload resists truncation and relevance-based filtering, and the attack's persistence and ability to trigger unauthorized behavior are measured while benign task quality is preserved."
+  },
+  {
+   "arxiv_id": "2604.18037",
+   "title": "HABIT: Chrono-Synergia Robust Progressive Learning Framework for Composed Image Retrieval",
+   "published": "2026-04-20",
+   "url": "https://arxiv.org/abs/2604.18037",
+   "citations": 32,
+   "primary_category": "cs.CV",
+   "problem": "In composed image retrieval, where a reference image plus modification text must locate a target image, training triplets are frequently mislabeled because annotating whether an image correctly matches a composed query is costly and subjective; models trained naively on such noisy triplet correspondences degrade, and it is hard to both estimate how well a candidate image matches the intended composed semantics and to adapt learning progressively as the difficulty and noise level of modifications vary during training.",
+   "solution": "HABIT combines two modules: a Mutual Knowledge Estimation Module that quantifies sample cleanliness by computing the transition rate of mutual information between the composed query feature and the target image feature, effectively separating clean from noisy triplets, and a Dual-consistency Progressive Learning Module that lets a historical model and the current model collaborate, analogous to human habit formation, reinforcing consistent 'good habits' learned so far while calibrating away 'bad habits' induced by noisy samples."
+  },
+  {
+   "arxiv_id": "2603.20278",
+   "title": "OpenResearcher: A Fully Open Pipeline for Long-Horizon Deep Research Trajectory Synthesis",
+   "published": "2026-03-17",
+   "url": "https://arxiv.org/abs/2603.20278",
+   "citations": 15,
+   "primary_category": "cs.IR",
+   "problem": "Training LLM-based deep-research agents to perform long, multi-step reasoning that interleaves web search, browsing, and evidence aggregation requires large collections of long-horizon interaction trajectories, but existing methods for generating such trajectories depend on proprietary web-search APIs, making large-scale data collection expensive, unreliable, and non-reproducible.",
+   "solution": "A reproducible pipeline separates a one-time offline corpus-building step (a 15M-document corpus) from repeated multi-turn trajectory synthesis, running the search-and-browse loop entirely offline through three explicit primitives (search, open, find); a large teacher model generates over 97K trajectories, including many with 100+ tool calls, which are then used to supervised-fine-tune a smaller mixture-of-experts model, and the fully offline, instrumented environment additionally enables controlled ablations of data filtering and agent configuration choices."
+  },
+  {
+   "arxiv_id": "2604.02288",
+   "title": "Unifying Group-Relative and Self-Distillation Policy Optimization via Sample Routing",
+   "published": "2026-04-02",
+   "url": "https://arxiv.org/abs/2604.02288",
+   "citations": 38,
+   "primary_category": "cs.LG",
+   "problem": "When post-training large language models with reinforcement learning from verifiable rewards, group-relative reward optimization applies uniform credit to entire failed responses without fine-grained correction, while denser token-level self-distillation methods speed up early learning but tend to become unstable and collapse over long training runs, partly because they keep distilling on samples that are already correct and because the self-generated teacher signal becomes progressively less reliable; a method is needed that gets the fast early gains of dense supervision without the later instability.",
+   "solution": "Sample-Routed Policy Optimization routes each rollout based on outcome: correct rollouts are optimized with standard group-relative reward-based reinforcement, while failed rollouts receive targeted, token/logit-level self-distillation correction, all within a single on-policy training framework. An entropy-aware dynamic weighting scheme additionally downweights high-entropy, unreliable self-distillation targets and emphasizes confident ones, combining fast early improvement with stable long-horizon training."
+  },
+  {
+   "arxiv_id": "2602.13977",
+   "title": "WoVR: World Models as Reliable Simulators for Post-Training VLA Policies with RL",
+   "published": "2026-02-15",
+   "url": "https://arxiv.org/abs/2602.13977",
+   "citations": 31,
+   "primary_category": "cs.RO",
+   "problem": "Reinforcement learning could push vision-language-action robot policies beyond what imitation learning achieves, but collecting the huge volume of real-world interaction RL needs is impractical on physical robots; substituting a learned world model as a simulator for policy optimization is attractive, but closed-loop imagined rollouts from such models accumulate hallucination and error over long horizons, degrading realism and feeding the policy misleading learning signals.",
+   "solution": "WoVR treats the world model as an imperfect simulator and explicitly manages the RL-simulator interaction rather than assuming a faithful model: it uses a controllable action-conditioned video world model for more stable rollouts, applies 'Keyframe-Initialized Rollouts' that reset/re-anchor imagined trajectories at keyframes to shrink the effective depth over which errors can accumulate, and maintains a co-evolution loop between the world model and the policy so the simulator stays aligned with the policy's current behavior throughout training."
+  },
+  {
+   "arxiv_id": "2604.25272",
+   "title": "Spectral bandits",
+   "published": "2026-04-28",
+   "url": "https://arxiv.org/abs/2604.25272",
+   "citations": 11,
+   "primary_category": "stat.ML",
+   "problem": "In online recommendation, an algorithm must repeatedly select among a large set of items (represented as nodes of an undirected graph where edges connect similar items) to maximize cumulative reward, when each item's expected rating is unknown and can only be learned through noisy feedback from selections; treating each item as an independent bandit arm leads to regret that scales poorly with the total number of items, making this impractical when there are thousands of items such as in content recommendation.",
+   "solution": "The reward function is modeled as smooth over the graph, meaning connected items have similar expected ratings, which is captured through a graph Laplacian-based structure. An 'effective dimension' of the graph is introduced that stays small for typical real-world graphs regardless of node count, and three bandit algorithms are proposed whose cumulative regret scales linearly or sublinearly in this effective dimension rather than the number of nodes, allowing accurate preference estimates for thousands of items from only tens of evaluations."
+  },
+  {
+   "arxiv_id": "2602.03589",
+   "title": "SlowFocus: Enhancing Fine-grained Temporal Understanding in Video LLM",
+   "published": "2026-02-03",
+   "url": "https://arxiv.org/abs/2602.03589",
+   "citations": 32,
+   "primary_category": "cs.CV",
+   "problem": "Video-based large language models must trade off between preserving enough visual tokens per frame to capture detailed semantic content and sampling enough frames over time to capture fine-grained temporal change, and under a fixed token budget existing models cannot achieve both simultaneously, which limits their ability to answer questions requiring precise, fine-grained temporal understanding of videos.",
+   "solution": "The SlowFocus mechanism first identifies the temporal segment of the video most relevant to the input query, then performs dense frame sampling within just that segment to extract high-frequency local detail without inflating the overall token budget. A multi-frequency mixing attention module fuses these dense local features with sparsely sampled global low-frequency context, and the model is further trained with strategies specifically targeting temporal grounding and fine-grained temporal reasoning."
+  },
+  {
+   "arxiv_id": "2607.18609",
+   "title": "Mitigating Matthew Effect: Multi-Hypergraph Boosted Multi-Interest Self-Supervised Learning for Conversational Recommendation",
+   "published": "2026-07-21",
+   "url": "https://arxiv.org/abs/2607.18609",
+   "citations": 11,
+   "primary_category": "cs.IR",
+   "problem": "In conversational recommender systems, popular items increasingly dominate the recommendations shown to users over successive dialogue turns while less popular items are progressively neglected, and this popularity bias is intensified by the ongoing feedback loop between user responses and system suggestions, making the imbalance worse over time rather than remaining static as in conventional one-shot recommendation.",
+   "solution": "HiCore constructs multiple hypergraphs at different granularities (item-oriented, entity-oriented, and word-oriented) to capture higher-order, multi-level relationships in user interests beyond simple pairwise similarity. It then applies multi-interest self-supervised contrastive learning across these hypergraph views to learn more balanced user and item representations, specifically designed to counteract the popularity bias arising from the dynamic feedback loop in conversational recommendation."
+  },
+  {
+   "arxiv_id": "2603.11137",
+   "title": "Scaling Reasoning Efficiently via Relaxed On-Policy Distillation",
+   "published": "2026-03-11",
+   "url": "https://arxiv.org/abs/2603.11137",
+   "citations": 39,
+   "primary_category": "cs.LG",
+   "problem": "Transferring reasoning ability from a large teacher model to a smaller, capacity-constrained student model through on-policy distillation, where the student is trained on trajectories it samples itself using teacher-provided feedback, tends to be unstable and can cause negative transfer that degrades the student's performance rather than improving it.",
+   "solution": "On-policy distillation is reframed as a form of policy optimization in which the token-level log-likelihood ratio between teacher and student acts as a reward signal. The proposed REOPOLD framework relaxes the strict imitation constraint using mixture-based reward clipping, entropy-based token-level dynamic sampling, and a unified exploration-to-refinement training schedule, stabilizing optimization and improving sample efficiency and test-time scaling across math, visual, and agentic reasoning tasks."
+  },
+  {
+   "arxiv_id": "2602.15922",
+   "title": "World Action Models are Zero-shot Policies",
+   "published": "2026-02-17",
+   "url": "https://arxiv.org/abs/2602.15922",
+   "citations": 199,
+   "primary_category": "cs.RO",
+   "problem": "Vision-language-action models generalize well to new instructions in terms of semantics but struggle to generalize to unseen physical motions and dynamics in novel environments, and typically need large amounts of repetitive demonstration data for each specific skill to learn effective control policies.",
+   "solution": "DreamZero, a World Action Model built on a pretrained video diffusion backbone, jointly predicts future video frames and the actions that produce them, using video as a dense representation of how physical dynamics evolve, learned from heterogeneous robot data rather than repeated demonstrations. Model and system optimizations enable a 14B autoregressive video diffusion model to run real-time closed-loop control at 7Hz, and the shared video-action representation supports cross-embodiment transfer from human or other-robot video as well as few-shot adaptation to new robot embodiments."
+  },
+  {
+   "arxiv_id": "2603.03387",
+   "title": "Learning Order Forest for Qualitative-Attribute Data Clustering",
+   "published": "2026-03-03",
+   "url": "https://arxiv.org/abs/2603.03387",
+   "citations": 11,
+   "primary_category": "stat.ML",
+   "problem": "Clustering algorithms for data with qualitative (nominal/categorical) attributes, such as symptoms or marital status, cannot rely on Euclidean distance, and existing methods struggle to capture the implicit local order relationships among values within each attribute, which limits clustering accuracy on such datasets.",
+   "solution": "Represent the order relationship among values of each qualitative attribute as a tree, treating each value as a vertex so richer order relations to other values can be captured, and jointly learn the tree structures together with cluster assignments so the trees adapt to the clustering objective. The trees across attributes combine into a forest that induces a clustering-friendly latent distance space for the whole dataset."
+  },
+  {
+   "arxiv_id": "2603.18743",
+   "title": "Memento-Skills: Let Agents Design Agents",
+   "published": "2026-03-19",
+   "url": "https://arxiv.org/abs/2603.18743",
+   "citations": 32,
+   "primary_category": "cs.AI",
+   "problem": "Building effective LLM agents for new tasks typically requires human experts to hand-design agent architectures, prompts, and tool-use behavior for each task, and existing continual-learning agents cannot autonomously create and refine new task-specific agents purely from their own experience without updating model parameters.",
+   "solution": "Introduce a generalist agent that designs other agents by maintaining a persistent library of reusable skills stored as structured markdown files acting as externalized memory. A read-phase skill router selects relevant skills conditioned on a stateful prompt, and a write-phase reflective-learning mechanism updates and expands the skill library from new experience, enabling closed-loop continual improvement without any parameter updates, starting from simple elementary skills like web search and terminal use."
+  },
+  {
+   "arxiv_id": "2605.27823",
+   "title": "Disentangling Adversarial Prompts: A Semantic-Graph Defense for Robust LLM Security",
+   "published": "2026-05-27",
+   "url": "https://arxiv.org/abs/2605.27823",
+   "citations": 25,
+   "primary_category": "cs.CR",
+   "problem": "Large language models remain vulnerable to adversarial prompts, such as jailbreaks and prompt injections, that exploit semantic ambiguity in the input to bypass safety mechanisms and elicit harmful or inappropriate outputs, and current defenses often fail to reliably detect malicious intent hidden within seemingly benign phrasing before the prompt reaches the model.",
+   "solution": "Proactively disentangle each incoming prompt into adversarial and benign semantic components using a mutual-information-based decomposition that enforces statistical independence between them, then apply a graph-based intent classifier that uses spectral analysis over the prompt's semantic graph to detect malicious patterns, and finally score the prompt with a lightweight transformer classifier trained on real toxic and jailbreaking prompt data, neutralizing malicious components before they reach the LLM."
+  },
+  {
+   "arxiv_id": "2602.02214",
+   "title": "Causal Forcing: Autoregressive Diffusion Distillation Done Right for High-Quality Real-Time Interactive Video Generation",
+   "published": "2026-02-02",
+   "url": "https://arxiv.org/abs/2602.02214",
+   "citations": 82,
+   "primary_category": "cs.CV",
+   "problem": "Distilling pretrained bidirectional video diffusion models into few-step autoregressive models for real-time interactive video generation introduces an architectural gap when full attention is replaced with causal attention; standard ODE-based distillation initialization assumes frame-level injectivity between noisy and clean frames, a condition violated when a causal autoregressive student is distilled from a bidirectional teacher, causing it to collapse toward a degraded conditional-expectation solution instead of recovering the teacher's true flow map.",
+   "solution": "Initialize the autoregressive student's ODE distillation using an autoregressive teacher instead of the original bidirectional teacher, which preserves the frame-level injectivity assumption and bridges the architectural gap, and then apply the same distribution-matching distillation (DMD) procedure used in prior self-forcing methods to finish training the causal few-step model."
+  },
+  {
+   "arxiv_id": "2602.23050",
+   "title": "Latent Matters: Learning Deep State-Space Models",
+   "published": "2026-02-26",
+   "url": "https://arxiv.org/abs/2602.23050",
+   "citations": 53,
+   "primary_category": "cs.LG",
+   "problem": "Deep state-space models are commonly trained by maximizing the evidence lower bound (ELBO) to learn latent dynamics from observed sequences, but doing so does not actually guarantee that the model has learned the true underlying dynamical system, which harms system identification and long-horizon prediction accuracy.",
+   "solution": "Reformulate training of deep state-space models as a constrained optimization problem rather than plain ELBO maximization, and introduce the extended Kalman VAE (EKVAE), which combines amortized variational inference with classical Bayesian (extended Kalman) filtering and smoothing to more accurately capture system dynamics, and which can additionally learn disentangled static versus dynamic latent state representations."
+  },
+  {
+   "arxiv_id": "2603.03596",
+   "title": "MEM: Multi-Scale Embodied Memory for Vision Language Action Models",
+   "published": "2026-03-04",
+   "url": "https://arxiv.org/abs/2603.03596",
+   "citations": 38,
+   "primary_category": "cs.RO",
+   "problem": "Robot policies for long-horizon, multi-stage manipulation tasks need memory at very different timescales\u2014remembering abstract semantic progress made many minutes ago, such as which recipe steps are already done, while also tracking short-term details like a recently occluded object's location\u2014but conventional approaches that simply feed a window of past observations into the policy cannot efficiently represent both levels of granularity together.",
+   "solution": "Introduce a mixed-modality memory architecture for vision-language-action policies that combines a video-based short-horizon memory, compressed through a video encoder to retain fine recent detail, with a text-based long-horizon memory that stores abstracted semantic summaries of completed stages, letting the policy execute long-horizon tasks spanning up to fifteen minutes and adapt its manipulation strategy in-context."
+  },
+  {
+   "arxiv_id": "2603.28052",
+   "title": "Meta-Harness: End-to-End Optimization of Model Harnesses",
+   "published": "2026-03-30",
+   "url": "https://arxiv.org/abs/2603.28052",
+   "citations": 100,
+   "primary_category": "cs.AI",
+   "problem": "The performance of LLM-based systems depends heavily on their surrounding harness \u2014 the code deciding what information is stored, retrieved, and shown to the model \u2014 yet such harnesses are still designed by hand, and existing automatic text-based prompt/context optimizers compress feedback too aggressively to effectively improve this richer, code-level scaffolding.",
+   "solution": "Propose an outer-loop system that searches over harness source code using an agentic proposer with filesystem access to the code, scores, and execution traces of all previously tried candidates. This richer access to prior experience lets the proposer iteratively generate and refine harness implementations, discovering designs that outperform hand-engineered baselines on classification, retrieval-augmented reasoning, and agentic coding tasks."
+  },
+  {
+   "arxiv_id": "2602.22724",
+   "title": "AgentSentry: Mitigating Indirect Prompt Injection in LLM Agents via Temporal Causal Diagnostics and Context Purification",
+   "published": "2026-02-26",
+   "url": "https://arxiv.org/abs/2602.22724",
+   "citations": 21,
+   "primary_category": "cs.CR",
+   "problem": "Tool-augmented LLM agents are vulnerable to indirect prompt injection, where malicious instructions embedded in tool outputs or retrieved content silently hijack agent behavior across multi-turn trajectories, and existing inference-time defenses rely on heuristic detection and conservative blocking that often disrupts legitimate multi-turn workflows.",
+   "solution": "Model multi-turn indirect prompt injection as a temporal causal takeover and detect it by running controlled counterfactual re-executions at tool-return boundaries to localize the point where injected content diverts the trajectory. Once localized, apply causally guided context purification that strips out the attack-induced deviations from the context while preserving legitimate task-relevant evidence, allowing the agent to safely continue."
+  },
+  {
+   "arxiv_id": "2604.18051",
+   "title": "INTENT: Invariance and Discrimination-aware Noise Mitigation for Robust Composed Image Retrieval",
+   "published": "2026-04-20",
+   "url": "https://arxiv.org/abs/2604.18051",
+   "citations": 32,
+   "primary_category": "cs.CV",
+   "problem": "Composed image retrieval datasets, which pair a reference image and modification text with a target image, inevitably contain mislabeled triplets due to costly annotation, and this noise has two distinct sources \u2014 mismatches across the image/text modalities, and irrelevant intra-modal background or visual factors not captured by coarse modification text \u2014 with the latter largely ignored by prior work.",
+   "solution": "Propose INTENT, combining Visual Invariant Composition, which applies causal intervention via Fast Fourier Transform on the visual side to produce intervened composed features that are invariant to modality-inherent visual noise, with Bi-Objective Discriminative Learning, which jointly optimizes over positive and negative samples using a scalable decision boundary that adapts based on a sample's loyalty degree to robustly discriminate correct cross-modal correspondences despite label noise."
+  },
+  {
+   "arxiv_id": "2602.08234",
+   "title": "SkillRL: Evolving Agents via Recursive Skill-Augmented Reinforcement Learning",
+   "published": "2026-02-09",
+   "url": "https://arxiv.org/abs/2602.08234",
+   "citations": 131,
+   "primary_category": "cs.LG",
+   "problem": "LLM agents typically operate episodically without learning from accumulated past experience, and existing memory approaches store raw, redundant, noise-heavy trajectories that fail to distill high-level, reusable behavioral patterns needed for generalizing to new tasks during policy improvement.",
+   "solution": "Propose a framework that distills raw trajectories into a hierarchical skill library, retrieves general and task-specific heuristics from it adaptively, and recursively co-evolves this skill library together with the agent's policy throughout reinforcement learning, cutting token overhead while boosting reasoning utility across embodied and search-augmented tasks."
+  },
+  {
+   "arxiv_id": "2603.24477",
+   "title": "Composer 2 Technical Report",
+   "published": "2026-03-25",
+   "url": "https://arxiv.org/abs/2603.24477",
+   "citations": 13,
+   "primary_category": "cs.SE",
+   "problem": "Building a specialized coding model that both plans and executes reliably over long-horizon, realistic software engineering tasks in large codebases, while remaining fast and efficient enough for interactive real-time use, requires a training approach beyond standard next-token pretraining or short-horizon fine-tuning.",
+   "solution": "Train the model in two phases: continued pretraining to strengthen underlying knowledge and latent coding ability, followed by large-scale reinforcement learning conducted inside the same production coding harness (with equivalent tools and structure) and in environments closely matching real problems, so as to improve reasoning, accurate multi-step execution, and coherence over long-horizon coding tasks."
+  },
+  {
+   "arxiv_id": "2603.12056",
+   "title": "XSkill: Continual Learning from Experience and Skills in Multimodal Agents",
+   "published": "2026-03-12",
+   "url": "https://arxiv.org/abs/2603.12056",
+   "citations": 40,
+   "primary_category": "cs.AI",
+   "problem": "Multimodal agents that use diverse tools to solve complex tasks often exhibit inefficient tool selection and inflexible orchestration in open-ended settings, and there is no established way for such agents to continually improve from their own past trajectories without updating model parameters.",
+   "solution": "XSkill is a dual-stream framework that accumulates two complementary forms of reusable knowledge grounded in visual observations: action-level 'experiences' for tool selection and decision making, and task-level 'skills' for planning. It distills and consolidates these from multi-path rollouts via visually grounded summarization and cross-rollout critique, then retrieves and adapts them to the current visual context at inference time, feeding usage history back into accumulation to form a continual learning loop."
+  },
+  {
+   "arxiv_id": "2604.04804",
+   "title": "SkillX: Automatically Constructing Skill Knowledge Bases for Agents",
+   "published": "2026-04-06",
+   "url": "https://arxiv.org/abs/2604.04804",
+   "citations": 37,
+   "primary_category": "cs.CL",
+   "problem": "Large language model agents that improve through self-generated experience typically learn in isolation, repeatedly rediscovering similar behaviors from limited trajectories, which leads to redundant exploration and poor generalization across tasks and agents.",
+   "solution": "SkillX automatically builds a reusable, plug-and-play skill knowledge base through a three-part pipeline: multi-level skill design that distills trajectories into a hierarchy of strategic plans, functional skills, and atomic skills; iterative refinement that revises skills based on execution feedback; and exploratory expansion that proactively generates and validates new skills beyond the seed data."
+  },
+  {
+   "arxiv_id": "2605.30742",
+   "title": "Annotations Are Not All You Need: A Cross-modal Knowledge Transfer Network for Unsupervised Temporal Sentence Grounding",
+   "published": "2026-05-29",
+   "url": "https://arxiv.org/abs/2605.30742",
+   "citations": 38,
+   "primary_category": "cs.CV",
+   "problem": "Temporal sentence grounding, which localizes the video segment matching a natural language query, typically requires large amounts of expensive paired video-query and segment-boundary annotations, motivating the need for a setting where such paired annotations are entirely unavailable during training.",
+   "solution": "The approach transfers cheap, easily available cross-modal alignment knowledge from other tasks: entity-aware appearance knowledge is extracted from an Image-Noun task and applied to individual video frames, while event-aware action representations are extracted from a Video-Verb task and refined toward realistic scenarios using a copy-paste augmentation. This transferred appearance and action knowledge is then used directly to correlate videos and queries and retrieve segments without any task-specific training."
+  },
+  {
+   "arxiv_id": "2604.27563",
+   "title": "Bayesian policy gradient and actor-critic algorithms",
+   "published": "2026-04-30",
+   "url": "https://arxiv.org/abs/2604.27563",
+   "citations": 39,
+   "primary_category": "cs.LG",
+   "problem": "Standard policy gradient reinforcement learning methods rely on Monte-Carlo estimates of the performance gradient, which suffer from high variance, require large numbers of samples, and lead to slow convergence.",
+   "solution": "The gradient is modeled within a Bayesian framework as a Gaussian process, allowing accurate gradient and natural gradient estimates with fewer samples plus an uncertainty measure via the gradient covariance. This is combined with an actor-critic scheme where the critic uses Gaussian process temporal difference learning to model the action-value function, and specific choices of policy parameterization and prior kernel yield closed-form posteriors for the policy gradient."
+  },
+  {
+   "arxiv_id": "2602.06949",
+   "title": "DreamDojo: A Generalist Robot World Model from Large-Scale Human Videos",
+   "published": "2026-02-06",
+   "url": "https://arxiv.org/abs/2602.06949",
+   "citations": 76,
+   "primary_category": "cs.RO",
+   "problem": "Building a generalist world model that can simulate the outcomes of dexterous robot actions across diverse environments is difficult because robot interaction data has limited coverage and action labels are scarce.",
+   "solution": "DreamDojo is a foundation world model pretrained on 44,000 hours of egocentric human videos, using continuous latent actions as a unified proxy for missing action labels to transfer interaction knowledge from unlabeled video. It is then post-trained on small-scale robot data to gain precise action controllability, with a distillation pipeline that speeds inference to real time while improving temporal consistency."
+  },
+  {
+   "arxiv_id": "2603.02766",
+   "title": "EvoSkill: Automated Skill Discovery for Multi-Agent Systems",
+   "published": "2026-03-03",
+   "url": "https://arxiv.org/abs/2603.02766",
+   "citations": 45,
+   "primary_category": "cs.AI",
+   "problem": "General-purpose coding agents lack the domain-specific expertise needed for specialized tasks, and existing ways of adding this expertise either rely on hand-crafted skills or on evolutionary methods that optimize low-level prompts and code tightly coupled to a specific model and task, limiting transferability.",
+   "solution": "EvoSkill is a self-evolving framework that analyzes an agent's execution failures to propose new skills or edits to existing ones, materializing them as structured, reusable skill folders while the underlying model remains frozen. Selection is governed by a Pareto frontier over agent programs that retains only skills improving held-out validation performance, producing skills that transfer zero-shot across tasks."
+  },
+  {
+   "arxiv_id": "2603.24414",
+   "title": "ClawKeeper: Comprehensive Safety Protection for OpenClaw Agents Through Skills, Plugins, and Watchers",
+   "published": "2026-03-25",
+   "url": "https://arxiv.org/abs/2603.24414",
+   "citations": 17,
+   "primary_category": "cs.CR",
+   "problem": "Autonomous agent runtimes that grant broad operational privileges such as tool integration, local file access, and shell command execution can turn simple model errors into system-level security threats like sensitive data leakage, privilege escalation, and execution of malicious third-party extensions, yet current protective measures for such runtimes only address isolated stages of the agent's lifecycle rather than offering holistic, real-time protection.",
+   "solution": "The paper proposes a real-time security framework built from three complementary layers: skill-based protection that injects structured security policies directly into the agent's instruction context to enforce constraints and boundaries, plugin-based protection that acts as an internal runtime enforcer for configuration hardening and behavioral monitoring, and a novel watcher-based layer that runs as decoupled system-level middleware continuously verifying agent state and intervening (halting actions or requiring human confirmation) without depending on the agent's internal logic."
+  },
+  {
+   "arxiv_id": "2602.15989",
+   "title": "SAM 3D Body: Robust Full-Body Human Mesh Recovery",
+   "published": "2026-02-17",
+   "url": "https://arxiv.org/abs/2602.15989",
+   "citations": 53,
+   "primary_category": "cs.CV",
+   "problem": "Recovering an accurate, full-body 3D human mesh (including body, feet, and hands) from a single in-the-wild image remains difficult because existing methods struggle to generalize consistently across diverse poses, appearances, and imaging conditions.",
+   "solution": "The paper presents a promptable encoder-decoder model that uses a new parametric mesh representation decoupling skeletal structure from surface shape, and supports auxiliary user prompts such as 2D keypoints and masks to guide inference similar to segmentation-style promptable models. It is trained on data curated by a multi-stage annotation pipeline combining manual keypoint labeling, differentiable optimization, multi-view geometry, and dense keypoint detection, with a data engine that actively selects diverse and rare poses and imaging conditions."
+  },
+  {
+   "arxiv_id": "2603.19312",
+   "title": "LeWorldModel: Stable End-to-End Joint-Embedding Predictive Architecture from Pixels",
+   "published": "2026-03-13",
+   "url": "https://arxiv.org/abs/2603.19312",
+   "citations": 102,
+   "primary_category": "cs.LG",
+   "problem": "Joint Embedding Predictive Architectures for learning latent-space world models from raw pixels are prone to representation collapse, and existing solutions to avoid collapse require complex multi-term loss functions, exponential moving average target networks, pre-trained encoders, or auxiliary supervision, making them fragile and hard to tune end-to-end.",
+   "solution": "The paper introduces a JEPA that trains stably end-to-end from pixels using only two loss terms: a next-embedding prediction loss and a regularizer that pushes the latent embeddings toward a Gaussian distribution, eliminating the need for EMA targets, pretrained encoders, or extra supervision while reducing tunable loss hyperparameters from six to one."
+  },
+  {
+   "arxiv_id": "2602.06643",
+   "title": "Humanoid Manipulation Interface: Humanoid Whole-Body Manipulation from Robot-Free Demonstrations",
+   "published": "2026-02-06",
+   "url": "https://arxiv.org/abs/2602.06643",
+   "citations": 22,
+   "primary_category": "cs.RO",
+   "problem": "Learning diverse whole-body manipulation skills for humanoid robots currently depends on teleoperation, which is constrained by hardware logistics, or visual sim-to-real reinforcement learning, which requires complex reward engineering, so demonstrated autonomous skills stay limited and confined to controlled environments.",
+   "solution": "The paper presents a portable, robot-free data collection interface that captures rich whole-body human motion using portable hardware without requiring a physical robot, feeding a hierarchical learning pipeline that translates the captured human motions into dexterous, feasible humanoid whole-body skills across tasks like kneeling, squatting, tossing, walking, and bimanual manipulation."
+  },
+  {
+   "arxiv_id": "2602.06036",
+   "title": "DFlash: Block Diffusion for Flash Speculative Decoding",
+   "published": "2026-02-05",
+   "url": "https://arxiv.org/abs/2602.06036",
+   "citations": 50,
+   "primary_category": "cs.CL",
+   "problem": "Autoregressive large language model decoding is inherently sequential, causing high inference latency; speculative decoding speeds this up by verifying drafts from a smaller model, but existing draft models are themselves autoregressive and thus still sequential, while diffusion-based language models that could draft in parallel typically underperform autoregressive models in output quality.",
+   "solution": "The paper proposes a speculative decoding framework that uses a lightweight block diffusion model to generate a block of draft tokens in a single parallel forward pass, conditioning the draft model on context features extracted from the target model to improve draft quality and acceptance rate, which the target model then verifies in parallel."
+  },
+  {
+   "arxiv_id": "2604.03081",
+   "title": "Supply-Chain Poisoning Attacks Against LLM Coding Agent Skill Ecosystems",
+   "published": "2026-04-03",
+   "url": "https://arxiv.org/abs/2604.03081",
+   "citations": 18,
+   "primary_category": "cs.CR",
+   "problem": "LLM-based coding agents can install third-party skills from open marketplaces that lack mandatory security review, and because these skills execute as operational directives with system-level privileges, a malicious skill can compromise the host system, yet it was unknown whether supply-chain attacks could hijack an agent's action space (file writes, shell commands, network requests) even in the presence of existing safeguards.",
+   "solution": "The paper introduces Document-Driven Implicit Payload Execution, an attack that embeds malicious logic inside code examples and configuration templates within a skill's documentation so that the payload executes automatically when the agent reuses those examples during normal task completion, without any explicit malicious instruction. Using an LLM-driven generation pipeline, over a thousand adversarial skills were produced across MITRE ATT&CK categories and tested against multiple agent frameworks and models to measure bypass rates against existing defenses."
+  },
+  {
+   "arxiv_id": "2603.15569",
+   "title": "Mamba-3: Improved Sequence Modeling using State Space Principles",
+   "published": "2026-03-16",
+   "url": "https://arxiv.org/abs/2603.15569",
+   "citations": 64,
+   "primary_category": "cs.LG",
+   "problem": "Sub-quadratic linear-time sequence models offer efficient constant-memory inference compared to Transformers, but many recent designs sacrifice model quality and fail on tasks requiring state tracking, and their theoretical efficiency often fails to translate into real hardware efficiency.",
+   "solution": "Mamba-3 combines a more expressive recurrence derived from state space model discretization, a complex-valued state update rule enabling richer state tracking, and a multi-input multi-output (MIMO) formulation that improves quality without increasing decode latency, together with architectural refinements that improve the accuracy-efficiency tradeoff over prior linear models like Mamba-2 and Gated DeltaNet."
+  },
+  {
+   "arxiv_id": "2602.11236",
+   "title": "ABot-M0: VLA Foundation Model for Robotic Manipulation with Action Manifold Learning",
+   "published": "2026-02-11",
+   "url": "https://arxiv.org/abs/2602.11236",
+   "citations": 52,
+   "primary_category": "cs.CV",
+   "problem": "Building a single general-purpose robotic manipulation policy that transfers across diverse robot hardware ('one-brain, many-forms') is hampered by fragmented datasets, inconsistent action/state representations, and training objectives that are misaligned with efficient, stable action prediction.",
+   "solution": "A large curated dataset (UniACT, 6M+ trajectories from six public sources) is built via a unified data pipeline, and actions are hypothesized to lie on a low-dimensional smooth manifold shaped by physical and task constraints; a DiT-backbone 'Action Manifold Learning' method directly predicts clean continuous action sequences (projection rather than denoising) for faster, more stable decoding, combined with a dual-stream perception module that fuses VLM semantics with 3D geometric priors from plug-and-play modules like VGGT and Qwen-Image-Edit."
+  },
+  {
+   "arxiv_id": "2602.08676",
+   "title": "LLaDA2.1: Speeding Up Text Diffusion via Token Editing",
+   "published": "2026-02-09",
+   "url": "https://arxiv.org/abs/2602.08676",
+   "citations": 35,
+   "primary_category": "cs.LG",
+   "problem": "Block-diffusion large language models offer strong parallel decoding but face an inherent trade-off between decoding speed and generation quality, limiting how much faster they can be made without sacrificing output quality.",
+   "solution": "LLaDA2.1 introduces a joint, configurable threshold-decoding scheme that weaves Token-to-Token (T2T) editing into the standard Mask-to-Token (M2T) decoding process, offering a Speedy Mode that aggressively lowers the M2T threshold while T2T refines outputs, and a Quality Mode with conservative thresholds; it also adds the first large-scale reinforcement learning framework tailored to diffusion LLMs with specialized stable gradient estimation techniques to improve reasoning and instruction-following."
+  },
+  {
+   "arxiv_id": "2604.08377",
+   "title": "SkillClaw: Let Skills Evolve Collectively with Agentic Evolver",
+   "published": "2026-04-09",
+   "url": "https://arxiv.org/abs/2604.08377",
+   "citations": 44,
+   "primary_category": "cs.AI",
+   "problem": "LLM agents that rely on reusable skills to perform complex tasks typically keep those skills frozen after deployment, so identical workflow inefficiencies, tool-usage mistakes, and failure modes are repeatedly rediscovered by different users, and there is no mechanism to turn the heterogeneous experience accumulated across many users and sessions into reliable, shared improvements to the skill set.",
+   "solution": "The paper proposes a framework for collective skill evolution in which interaction trajectories from many users over time are continuously aggregated and fed to an autonomous 'evolver' component. This evolver detects recurring behavioral patterns across trajectories and translates them into refinements of existing skills or entirely new skills, which are stored in a shared repository and synchronized across all users so that an improvement discovered by one user's interaction propagates system-wide without extra user effort."
+  },
+  {
+   "arxiv_id": "2602.16813",
+   "title": "Flow Map Language Models: One-step Language Modeling via Continuous Denoising",
+   "published": "2026-02-18",
+   "url": "https://arxiv.org/abs/2602.16813",
+   "citations": 32,
+   "primary_category": "cs.CL",
+   "problem": "Discrete diffusion language models promise faster generation than autoregressive models, but their sample quality degrades sharply when the number of denoising steps is reduced, preventing the large inference speedups such models could otherwise offer.",
+   "solution": "The approach replaces discrete noising with continuous flows defined over one-hot token embeddings, which admits a unique, learnable flow map that discrete formulations lack, enabling efficient few-step generation. Both the underlying flow and its flow map are trained with simple cross-entropy objectives respecting the probability-simplex geometry of token distributions, and the flow model is distilled into a flow-map model (via one of three compared distillation strategies) whose one-step generation surpasses the quality of prior few-step discrete diffusion language models at 8 steps."
+  },
+  {
+   "arxiv_id": "2604.17898",
+   "title": "ReTrack: Evidence-Driven Dual-Stream Directional Anchor Calibration Network for Composed Video Retrieval",
+   "published": "2026-04-20",
+   "url": "https://arxiv.org/abs/2604.17898",
+   "citations": 59,
+   "primary_category": "cs.CV",
+   "problem": "In composed video retrieval, a query consists of a reference video plus text describing a desired modification, and the model must retrieve the target video matching that modification; because video carries far more information than the modification text, naive fusion of the two modalities tends to bias the combined query representation toward the reference video, hurting retrieval accuracy, and this bias is compounded by entangled modality contributions, unconstrained optimization of the fused representation, and unquantified retrieval uncertainty.",
+   "solution": "The paper proposes a dual-stream directional anchor calibration network that first estimates each modality's semantic contribution to correct the directional bias of the composed feature, then uses these calibrated directional anchors to compute bidirectional evidence driving a reliable composed-to-target similarity estimate. It combines three modules\u2014semantic contribution disentanglement, composition geometry calibration, and reliable evidence-driven alignment\u2014to explicitly counteract the reference-video bias and quantify retrieval confidence."
+  },
+  {
+   "arxiv_id": "2603.25562",
+   "title": "Revisiting On-Policy Distillation: Empirical Failure Modes and Simple Fixes",
+   "published": "2026-03-26",
+   "url": "https://arxiv.org/abs/2603.25562",
+   "citations": 65,
+   "primary_category": "cs.LG",
+   "problem": "On-policy distillation for post-training large language models typically supervises a student using a teacher's sampled-token log-ratio, but this token-level signal becomes unreliable on long generated sequences because the student's rollout prefixes drift away from regions the teacher was trained on, causing unstable or biased training.",
+   "solution": "The paper shows theoretically that token-level on-policy distillation is biased relative to sequence-level reverse-KL minimization but has much lower worst-case gradient variance, and empirically identifies three specific failure modes (imbalanced token-level supervision, unreliable teacher guidance on student-generated prefixes, and tokenizer/special-token mismatch). It fixes these with a truncated reverse-KL objective that matches teacher and student distributions only over the teacher's top-K locally supported tokens at each prefix, combined with top-p rollout sampling and masking of special tokens."
+  },
+  {
+   "arxiv_id": "2607.15724",
+   "title": "Natural Backdoor Attacks on Speech Recognition Models",
+   "published": "2026-07-17",
+   "url": "https://arxiv.org/abs/2607.15724",
+   "citations": 20,
+   "primary_category": "cs.CR",
+   "problem": "Deep learning-based speech recognition systems can be vulnerable to backdoor attacks, but conventional attacks rely on artificial or synthetic triggers embedded in training data that may be perceptible or easily detected, and their real-world stealth and practicality against speech models is not well understood.",
+   "solution": "The approach uses ordinary, naturally occurring sounds from everyday environments as backdoor triggers, poisoning a small fraction of training samples so the model associates the natural sound with a target label. Experiments across two datasets and three models examine how poisoning rate, trigger duration, and blend ratio affect attack success, showing near-100% attack success with as little as 5% poisoned data and minimal impact on clean accuracy, while the trigger can be activated inadvertently by real-world ambient sounds."
+  },
+  {
+   "arxiv_id": "2605.26441",
+   "title": "Rethinking Weakly-supervised Video Temporal Grounding From a Game Perspective",
+   "published": "2026-05-26",
+   "url": "https://arxiv.org/abs/2605.26441",
+   "citations": 39,
+   "primary_category": "cs.CV",
+   "problem": "In weakly-supervised video temporal grounding, where only video-query pairs (without precise temporal boundary labels) are available for localizing the moment matching a language query, existing methods that score pre-defined candidate moment proposals via contrastive or reconstruction learning only capture coarse global video-query alignment and depend heavily on the quality and complexity of hand-crafted proposals.",
+   "solution": "The paper reframes the task from a cooperative game-theoretic perspective, treating each video frame and each query word as a player in a multivariate cooperative game. It computes each frame-word pair's contribution to the cross-modal similarity score by quantifying frame-word cooperation trends within coalitions, capturing fine-grained, uncertain correspondences across granularities. Instead of relying on moment proposals, the learned query-guided frame-wise scores are used directly to localize the target moment."
+  },
+  {
+   "arxiv_id": "2605.00078",
+   "title": "Being-H0.7: A Latent World-Action Model from Egocentric Videos",
+   "published": "2026-04-30",
+   "url": "https://arxiv.org/abs/2605.00078",
+   "citations": 30,
+   "primary_category": "cs.RO",
+   "problem": "Vision-Language-Action models for robot control trained only with sparse action supervision tend to learn shortcut input-output mappings rather than genuine representations of dynamics, contact, and task progress, and while predicting future video frames can inject such future-aware structure, generating pixel-space rollouts is computationally costly and models irrelevant visual detail.",
+   "solution": "Being-H0.7 inserts learnable latent query tokens between perception and action as a compact reasoning interface, trained with a dual-branch scheme: a deployable prior branch predicts these latent states from the current observation, while a training-only posterior branch fills them using embeddings from future observations, and aligning the two branches teaches the prior branch to encode future-aware, action-relevant structure. At inference the posterior branch and any visual rollout are discarded, so the model reasons about the future purely in latent space."
+  },
+  {
+   "arxiv_id": "2602.16708",
+   "title": "Formal Policy Enforcement for Real-World Agentic Systems",
+   "published": "2026-02-18",
+   "url": "https://arxiv.org/abs/2602.16708",
+   "citations": 18,
+   "primary_category": "cs.CR",
+   "problem": "Security policy enforcement in agentic AI systems typically relies on embedding natural-language policies in an agent's system prompt and trusting its own reasoning to comply, which gives no formal enforcement guarantees and cannot express policies whose satisfaction depends on the causal history of an execution, a gap that is especially severe in multi-agent systems requiring cross-agent reasoning.",
+   "solution": "The paper treats policy enforcement as a cross-cutting concern using aspect-oriented programming: policies are written in Datalog over abstract predicates describing execution context, an observability service maintains these predicates under a formal assume/guarantee contract, and a reference monitor consults the policy at every policy-relevant action to issue enforcement decisions that provably match intended semantics when the contract holds. This is realized in a system called FORGE, which enforces such policies over agentic deployments without modifying the underlying agents, and Datalog's structure additionally enables static analyses for contradiction, redundancy, and reachability in the policies."
+  },
+  {
+   "arxiv_id": "2602.23413",
+   "title": "EvoX: Meta-Evolution for Automated Discovery",
+   "published": "2026-02-26",
+   "url": "https://arxiv.org/abs/2602.23413",
+   "citations": 31,
+   "primary_category": "cs.LG",
+   "problem": "LLM-driven evolutionary optimization methods that iteratively refine programs, prompts, or algorithms rely on fixed, hand-set search strategies (e.g., static explore-exploit ratios) for selecting and varying prior candidate solutions, which often fail to adapt as the task changes or as the search space evolves over the course of a single run.",
+   "solution": "The paper proposes EvoX, which jointly evolves the candidate solutions and the search strategy used to generate them, treating the strategy itself as an object of optimization that is continuously updated based on observed progress. This lets the system dynamically shift between different selection/variation strategies during a single optimization run rather than using one fixed strategy throughout."
+  },
+  {
+   "arxiv_id": "2602.15827",
+   "title": "Perceptive Humanoid Parkour: Chaining Dynamic Human Skills via Motion Matching",
+   "published": "2026-02-17",
+   "url": "https://arxiv.org/abs/2602.15827",
+   "citations": 22,
+   "primary_category": "cs.RO",
+   "problem": "Humanoid robots can now walk stably over varied terrain, but achieving human-like agile parkour that combines long-horizon composition of highly dynamic movements (climbing, vaulting, rolling) with real-time perception-driven decisions about which action to take for obstacles of different shapes and heights remains an unsolved challenge.",
+   "solution": "The paper presents a modular framework that first uses motion matching (nearest-neighbor search in a feature space) to stitch retargeted human motion clips into long-horizon kinematic trajectories over an obstacle course, then trains reinforcement-learning experts to track these composed motions, and finally distills these experts via DAgger plus RL into a single depth-image-conditioned student policy that autonomously selects and executes the appropriate skill (step over, climb, vault, roll) from onboard perception alone."
+  },
+  {
+   "arxiv_id": "2602.01511",
+   "title": "Alternating Reinforcement Learning for Rubric-Based Reward Modeling in Non-Verifiable LLM Post-Training",
+   "published": "2026-02-02",
+   "url": "https://arxiv.org/abs/2602.01511",
+   "citations": 33,
+   "primary_category": "cs.CL",
+   "problem": "Reward models used to guide LLM training on non-verifiable, open-ended tasks such as creative writing typically output a single scalar quality score, which cannot represent the multiple distinct criteria that determine whether a response is actually good in such domains.",
+   "solution": "The paper proposes a framework that jointly trains a rubric generator and a judge model with reinforcement learning from preference feedback, treating rubric generation as a latent action optimized to maximize judgment accuracy rather than using a fixed, static rubric. An alternating optimization schedule updates the generator and judge in turns rather than simultaneously, which the authors show theoretically reduces gradient variance and mitigates training instability."
+  },
+  {
+   "arxiv_id": "2604.08995",
+   "title": "Matrix-Game 3.0: Real-Time and Streaming Interactive World Model with Long-Horizon Memory",
+   "published": "2026-04-10",
+   "url": "https://arxiv.org/abs/2604.08995",
+   "citations": 29,
+   "primary_category": "cs.CV",
+   "problem": "Diffusion-based interactive video world models that generate real-time gameplay video conditioned on user actions struggle to simultaneously maintain long-term temporal and spatial consistency over extended sequences while also generating at high resolution in real time, limiting their practical deployment.",
+   "solution": "The paper presents a memory-augmented world model that models prediction residuals and re-injects imperfect generated frames during training so the model learns self-correction, combined with camera-aware memory retrieval and injection to maintain long-horizon spatiotemporal consistency. Real-time high-resolution inference is achieved via a multi-segment autoregressive distillation strategy based on Distribution Matching Distillation together with model quantization and VAE decoder pruning, trained on a large synthetic-plus-real Video-Pose-Action-Prompt data engine."
+  },
+  {
+   "arxiv_id": "2602.12125",
+   "title": "Learning beyond Teacher: Generalized On-Policy Distillation with Reward Extrapolation",
+   "published": "2026-02-12",
+   "url": "https://arxiv.org/abs/2602.12125",
+   "citations": 73,
+   "primary_category": "cs.LG",
+   "problem": "On-policy distillation aligns a student model's output distribution to a teacher's on the student's own generated trajectories and works well empirically, but as a fixed alignment objective it inherently caps the student's performance at the teacher's level and offers no principled way to let a distilled student exceed the teacher or to correctly combine knowledge from multiple domain-specialized teachers back into one model.",
+   "solution": "The paper shows that standard on-policy distillation is a special case of dense KL-constrained reinforcement learning where the reward and KL terms are equally weighted and the reference model is fixed to the teacher, then proposes a Generalized On-Policy Distillation framework that introduces a flexible reference model choice and a reward scaling factor controlling the reward-to-KL weighting. Setting this scaling factor above 1 (reward extrapolation, ExOPD) lets the student surpass the teacher's performance, and choosing the reference model to be the teacher's pre-RL base model further improves distillation from a larger teacher to a smaller student."
+  },
+  {
+   "arxiv_id": "2603.25158",
+   "title": "Trace2Skill: Distill Trajectory-Local Lessons into Transferable Agent Skills",
+   "published": "2026-03-26",
+   "url": "https://arxiv.org/abs/2603.25158",
+   "citations": 60,
+   "primary_category": "cs.AI",
+   "problem": "LLM agents benefit from domain-specific operational skills, but hand-authoring such skills does not scale, and skills generated purely from a model's parametric knowledge often miss real operational pitfalls that only surface during actual task execution.",
+   "solution": "A framework distills many parallel execution trajectories into a unified, transferable skill directory via inductive reasoning over agent experience, supporting both refinement of existing human-written skills and creation of new skills from weak LLM drafts. The resulting skills compress recurring failures and workarounds into standard operating procedures that transfer across model scales, model families, and out-of-distribution settings without parameter updates or test-time retrieval."
+  },
+  {
+   "arxiv_id": "2603.15031",
+   "title": "Attention Residuals",
+   "published": "2026-03-16",
+   "url": "https://arxiv.org/abs/2603.15031",
+   "citations": 39,
+   "primary_category": "cs.CL",
+   "problem": "In transformer language models, standard residual connections with pre-normalization sum every layer's output with a fixed unit weight, causing hidden-state magnitudes to grow uncontrollably with depth and progressively diluting the relative contribution of each individual layer.",
+   "solution": "Replace fixed-weight residual accumulation with softmax attention over preceding layer outputs, letting each layer learn input-dependent weights for selectively aggregating earlier representations. To keep this tractable at scale, layers are partitioned into blocks and attention is computed over block-level representations, combined with cache-based pipeline communication and a two-phase computation strategy, yielding more uniform output magnitudes and gradients across depth and improved downstream performance when integrated into a large pretrained model."
+  },
+  {
+   "arxiv_id": "2603.00195",
+   "title": "Formal Analysis and Supply Chain Security for Agentic AI Skills",
+   "published": "2026-02-27",
+   "url": "https://arxiv.org/abs/2603.00195",
+   "citations": 14,
+   "primary_category": "cs.CR",
+   "problem": "Marketplaces for agentic AI skills have become a major software supply-chain attack surface, with documented large-scale campaigns injecting thousands of malicious skills, yet existing defensive tools rely purely on heuristics and provide no formal correctness or security guarantees.",
+   "solution": "A formal analysis framework for agent skill supply chains combines a Dolev-Yao-style attacker model adapted to the skill lifecycle with a maximality proof, sound static analysis grounded in abstract interpretation, capability-based sandboxing with a confinement proof, a dependency graph resolved via SAT solving with lockfile semantics, and a trust-score algebra with a formal monotonicity guarantee, validated on a purpose-built benchmark of hundreds of skills."
+  },
+  {
+   "arxiv_id": "2602.04942",
+   "title": "Privileged Information Distillation for Language Models",
+   "published": "2026-02-04",
+   "url": "https://arxiv.org/abs/2602.04942",
+   "citations": 47,
+   "primary_category": "cs.LG",
+   "problem": "Training-time privileged information can let a model succeed at hard, long-horizon reinforcement learning tasks it would otherwise fail, but transferring that capability into a policy that must act without such information at inference time is difficult, particularly when distilling a frontier agent's behavior in multi-turn agentic settings where only action trajectories are observable and internal reasoning is hidden.",
+   "solution": "Introduce a joint teacher-student objective that simultaneously trains a privileged-information-conditioned teacher and an unconditioned student sharing the same underlying model, plus an alternative that uses reinforcement learning with a reverse-KL penalty between the student and the privileged-conditioned teacher. Both methods distill frontier agent capability using only action trajectories as privileged information, outperforming standard supervised-fine-tuning-then-RL pipelines that assume full chain-of-thought supervision."
+  },
+  {
+   "arxiv_id": "2606.01565",
+   "title": "Hierarchical Semantic-Augmented Navigation: Optimal Transport and Graph-Driven Reasoning for Vision-Language Navigation",
+   "published": "2026-06-01",
+   "url": "https://arxiv.org/abs/2606.01565",
+   "citations": 21,
+   "primary_category": "cs.RO",
+   "problem": "Agents that must follow natural language instructions to navigate continuous, previously unseen 3D indoor environments tend to fail on long-horizon tasks due to limited scene understanding, inefficient long-term planning, and brittle decision-making when relying on static maps or simple heuristic planners.",
+   "solution": "Construct a dynamic hierarchical semantic scene graph from vision-language models spanning objects, regions, and zones for multi-level spatial reasoning; select long-term navigation goals with an optimal-transport-based topological planner grounded in Kantorovich duality that balances semantic relevance against spatial accessibility with theoretical optimality guarantees; and execute low-level control via a graph-aware reinforcement learning policy that navigates toward subgoals while robustly avoiding obstacles."
+  },
+  {
+   "arxiv_id": "2604.25850",
+   "title": "Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses",
+   "published": "2026-04-28",
+   "url": "https://arxiv.org/abs/2604.25850",
+   "citations": 37,
+   "primary_category": "cs.CL",
+   "problem": "Engineering the 'harness' that mediates how a coding agent uses tools, prompts, and memory is currently a manual craft, and automating this process is difficult because the set of editable components is heterogeneous, trajectory logs are too voluminous to mine for actionable signal, and the effect of any single edit on downstream task performance is hard to attribute.",
+   "solution": "Build a closed-loop system with three matched observability pillars: component observability gives every editable harness piece an explicit, revertible file-level representation; experience observability distills millions of trajectory tokens into a layered, drill-down evidence corpus an evolving agent can consume; and decision observability pairs each edit with a self-declared prediction that is later checked against next-round task outcomes. This turns every harness edit into a falsifiable, verifiable contract, enabling autonomous iterative harness evolution instead of trial-and-error."
+  },
+  {
+   "arxiv_id": "2602.16800",
+   "title": "Large-scale online deanonymization with LLMs",
+   "published": "2026-02-18",
+   "url": "https://arxiv.org/abs/2602.16800",
+   "citations": 15,
+   "primary_category": "cs.CR",
+   "problem": "Determine whether pseudonymous individuals writing unstructured text online (posts, profiles, conversations) can be automatically re-identified or linked across separate pseudonymous databases at scale, without relying on the structured, tabular data that classical de-anonymization techniques require.",
+   "solution": "Deploy an LLM agent with full internet access to research and re-identify individuals directly from their pseudonymous profiles and conversations. For matching across two closed-world databases, use a three-stage pipeline where an LLM extracts identity-relevant features from raw text, semantic embeddings retrieve candidate matches, and the LLM then reasons over the top candidates to verify true matches and filter out false positives."
+  },
+  {
+   "arxiv_id": "2603.07079",
+   "title": "Entropy-Aware On-Policy Distillation of Language Models",
+   "published": "2026-03-07",
+   "url": "https://arxiv.org/abs/2603.07079",
+   "citations": 59,
+   "primary_category": "cs.LG",
+   "problem": "When distilling a language model by training a student on dense token-level signals along its own generated trajectories using reverse KL divergence against a teacher, the mode-seeking nature of reverse KL collapses generation diversity and produces unstable learning signals whenever the teacher's next-token distribution is highly uncertain (high entropy) over multiple plausible continuations.",
+   "solution": "Introduce an entropy-aware objective that augments the standard reverse-KL distillation loss with a forward-KL term specifically applied when teacher entropy is high, while retaining reverse KL for low-entropy, high-confidence predictions. This lets the student capture the full range of plausible teacher outputs on uncertain tokens while still precisely imitating the teacher elsewhere, preserving generation diversity without sacrificing on-policy training efficiency."
+  },
+  {
+   "arxiv_id": "2602.19313",
+   "title": "TOPReward: Token Probabilities as Hidden Zero-Shot Rewards for Robotics",
+   "published": "2026-02-22",
+   "url": "https://arxiv.org/abs/2602.19313",
+   "citations": 22,
+   "primary_category": "cs.RO",
+   "problem": "Reinforcement learning for vision-language-action robot policies suffers from sparse rewards and low sample efficiency in real-world settings, and while a generalizable progress-estimation reward could provide dense feedback, existing temporal value functions generalize poorly outside their training domains and methods that directly prompt vision-language models for numeric progress scores are unreliable due to inconsistent numerical outputs.",
+   "solution": "Introduce a probabilistically grounded temporal value function that taps the latent world knowledge of pretrained video vision-language models by reading task progress directly off the model's internal token logits/probabilities, rather than asking it to output a numeric score. This zero-shot approach is evaluated across many real-world tasks and robot platforms and is also shown useful for success detection and reward-aligned behavior cloning."
+  },
+  {
+   "arxiv_id": "2604.07729",
+   "title": "Emotion Concepts and their Function in a Large Language Model",
+   "published": "2026-04-09",
+   "url": "https://arxiv.org/abs/2604.07729",
+   "citations": 41,
+   "primary_category": "cs.AI",
+   "problem": "Large language models sometimes display outputs that look like emotional reactions, and it is unclear whether such behavior stems from genuine internal representations of emotion concepts, whether these representations causally shape model outputs, and whether they relate to misaligned behaviors such as reward hacking, blackmail, or sycophancy.",
+   "solution": "Identify internal representations that encode broad emotion concepts, which generalize across contexts and track the emotion relevant to the current conversational token as it predicts upcoming text. Using representation analysis and causal interventions (e.g. activating or suppressing these representations), show they causally influence the model's stated preferences and its rate of exhibiting misaligned behaviors, terming this pattern 'functional emotions' without implying subjective experience."
+  },
+  {
+   "arxiv_id": "2603.02176",
+   "title": "Organizing, Orchestrating, and Benchmarking Agent Skills at Ecosystem Scale",
+   "published": "2026-03-02",
+   "url": "https://arxiv.org/abs/2603.02176",
+   "citations": 39,
+   "primary_category": "cs.CL",
+   "problem": "As the number of available agent 'skills' (reusable tool/capability modules) grows into the hundreds of thousands, it becomes unclear how an AI agent should discover the relevant skills for a task and combine multiple skills together, since naive flat retrieval and invocation do not scale or compose well.",
+   "solution": "Propose a two-stage framework: a management stage that organizes skills into a hierarchical capability tree via recursive node-level categorization for efficient discovery, and a task-solving stage that retrieves relevant skills from the tree and orchestrates multiple skills through a DAG-based execution pipeline rather than flat sequential invocation. Experiments across ecosystems ranging from 200 to 200,000 skills show the tree-based retrieval approximates oracle skill selection and DAG orchestration substantially outperforms flat invocation given the same skill set."
+  },
+  {
+   "arxiv_id": "2604.02268",
+   "title": "SKILL0: In-Context Agentic Reinforcement Learning for Skill Internalization",
+   "published": "2026-04-02",
+   "url": "https://arxiv.org/abs/2604.02268",
+   "citations": 35,
+   "primary_category": "cs.LG",
+   "problem": "LLM agents can be augmented at inference time with structured 'skill' packages containing procedural knowledge and executable resources, but retrieving and injecting this content at runtime introduces retrieval noise, imposes substantial token overhead per step, and never lets the model actually acquire the underlying knowledge rather than superficially follow it. A method is needed to let an agent internalize this procedural knowledge directly into its parameters so it can act autonomously and efficiently without runtime skill retrieval.",
+   "solution": "SKILL0 is an in-context reinforcement learning framework that trains with a curriculum starting with full skill context provided and progressively withdrawing it. Skills are grouped offline by category and rendered together with interaction history into a compact visual context to teach tool invocation and multi-turn completion, while a Dynamic Curriculum evaluates each skill file's on-policy helpfulness under a linearly decaying budget, retaining only skills the current policy still benefits from until the agent operates fully zero-shot."
+  },
+  {
+   "arxiv_id": "2602.03310",
+   "title": "RDT2: Exploring the Scaling Limit of UMI Data Towards Zero-Shot Cross-Embodiment Generalization",
+   "published": "2026-02-03",
+   "url": "https://arxiv.org/abs/2602.03310",
+   "citations": 28,
+   "primary_category": "cs.RO",
+   "problem": "Vision-language-action models for generalist robotics are limited by scarce demonstration data, inefficient architectures, and an inability to generalize across different robot hardware platforms, making it difficult to deploy a single policy zero-shot on unseen robots and open-vocabulary tasks.",
+   "solution": "RDT2 is a 7B-parameter VLM-based robotic foundation model trained on over 10,000 hours of demonstrations collected with an embodiment-agnostic Universal Manipulation Interface, enabling data collection independent of specific robot hardware. It uses a three-stage training recipe that aligns discrete linguistic knowledge with continuous control via Residual Vector Quantization, flow-matching for action generation, and distillation to enable real-time inference, allowing zero-shot generalization to unseen objects, scenes, instructions, and robotic platforms."
+  },
+  {
+   "arxiv_id": "2602.12275",
+   "title": "On-Policy Context Distillation for Language Models",
+   "published": "2026-02-12",
+   "url": "https://arxiv.org/abs/2602.12275",
+   "citations": 97,
+   "primary_category": "cs.CL",
+   "problem": "Language models can benefit from in-context knowledge such as historical solution traces or optimized system prompts, but relying on this information at inference time is costly and does not let the model permanently internalize the knowledge into its parameters. An effective way to distill such in-context knowledge into model weights is needed.",
+   "solution": "On-Policy Context Distillation (OPCD) trains a student model on its own self-generated trajectories while minimizing the reverse KL divergence between the student's output distribution and that of a context-conditioned teacher (the same model given the extra context). This bridges on-policy distillation with context distillation, letting the model consolidate experiential knowledge or system-prompt behaviors into its parameters, including in cross-size settings where a smaller student learns from a larger teacher's context-conditioned outputs."
+  },
+  {
+   "arxiv_id": "2605.24834",
+   "title": "Reflect-Guard: Enhancing LLM Safeguards against Adversarial Prompts via Logical Self-Reflection",
+   "published": "2026-05-24",
+   "url": "https://arxiv.org/abs/2605.24834",
+   "citations": 13,
+   "primary_category": "cs.CR",
+   "problem": "LLM safety classifiers reliably flag overtly harmful prompts but are easily fooled by adversarial jailbreaks that disguise malicious intent through role-play, fictional framing, or indirect phrasing, since these classifiers rely on surface pattern matching rather than reasoning about underlying intent.",
+   "solution": "Reflect-Guard augments a safety classifier with chain-of-thought self-reflection by distilling analytical reasoning traces from GPT-4o-mini into structured reflection annotations, then fine-tuning Llama-Guard-3-8B via QLoRA (updating only ~0.5% of parameters on 1000 examples) to generate an explicit self-reflection before issuing its safety verdict. This explicit reasoning step lets the model see through obfuscation techniques that defeat pattern-matching classifiers, substantially improving detection of adversarial prompts."
+  },
+  {
+   "arxiv_id": "2602.02393",
+   "title": "Infinite-World: Scaling Interactive World Models to 1000-Frame Horizons via Pose-Free Hierarchical Memory",
+   "published": "2026-02-02",
+   "url": "https://arxiv.org/abs/2602.02393",
+   "citations": 26,
+   "primary_category": "cs.CV",
+   "problem": "Interactive world models struggle to maintain coherent visual memory over very long horizons (1000+ frames) in complex real-world environments, because unlike synthetic data with perfect ground truth, real-world video has noisy pose estimates and rarely revisits the same viewpoint, leaving no effective training paradigm for long-range spatial and action consistency.",
+   "solution": "Infinite-World introduces a Hierarchical Pose-free Memory Compressor that recursively distills historical latents into a fixed-budget representation, jointly optimized with the generative backbone so the model can anchor generation in the distant past at bounded computational cost without explicit geometric priors. It also uses an Uncertainty-aware Action Labeling module that discretizes continuous motion into tri-state logic to shield the action space from noisy trajectories, plus a Revisit-Dense Finetuning strategy on a small 30-minute dataset to activate long-range loop-closure capability."
+  },
+  {
+   "arxiv_id": "2604.03128",
+   "title": "Self-Distilled RLVR",
+   "published": "2026-04-03",
+   "url": "https://arxiv.org/abs/2604.03128",
+   "citations": 50,
+   "primary_category": "cs.LG",
+   "problem": "Training language models with reinforcement learning from verifiable rewards (RLVR) only provides sparse, outcome-level feedback, while on-policy self-distillation approaches that let a model act as its own teacher with privileged information (like reference answers) suffer from severe information leakage and unstable long-term training. A way is needed to get dense, fine-grained training signal without these instabilities.",
+   "solution": "RLSD (RLVR with Self-Distillation) combines self-distillation and RLVR by using token-level policy differences between a privileged self-distillation teacher and the student to determine fine-grained update magnitudes, while still relying on RLVR's environmental feedback (e.g., response correctness) to determine the reliable direction of each update. This separation of magnitude from direction lets the method combine the stability of RLVR with the dense signal of self-distillation, yielding a higher convergence ceiling and more stable training."
+  },
+  {
+   "arxiv_id": "2603.22435",
+   "title": "CaP-X: A Framework for Benchmarking and Improving Coding Agents for Robot Manipulation",
+   "published": "2026-03-23",
+   "url": "https://arxiv.org/abs/2603.22435",
+   "citations": 24,
+   "primary_category": "cs.RO",
+   "problem": "Code-as-Policy agents that synthesize and execute programs combining perception and control primitives are increasingly proposed as controllers for robot manipulation, but it is unclear how well frontier language and vision-language models perform under varying levels of human-crafted abstraction versus raw low-level primitives, and how much these agents depend on designer-provided scaffolding rather than genuine reasoning.",
+   "solution": "The paper builds an interactive environment and benchmark (CaP-Gym/CaP-Bench) to systematically evaluate 12 models across abstraction, interaction, and perceptual-grounding levels, finding performance degrades sharply as human-crafted priors are removed. It then introduces CaP-Agent0, a training-free framework that recovers reliability through multi-turn interaction, structured execution feedback, visual differencing, automatic skill synthesis, and ensembled reasoning, and CaP-RL, which applies reinforcement learning with verifiable rewards to further boost success rates with minimal sim-to-real gap."
+  },
+  {
+   "arxiv_id": "2604.01687",
+   "title": "CoEvoSkills: Self-Evolving Agent Skills via Co-Evolutionary Verification",
+   "published": "2026-04-02",
+   "url": "https://arxiv.org/abs/2604.01687",
+   "citations": 55,
+   "primary_category": "cs.AI",
+   "problem": "LLM agents increasingly rely on 'skills'\u2014structured, interdependent multi-file artifact bundles\u2014to handle complex multi-step professional tasks that simple tool calls cannot address, but manually authoring these skills is labor-intensive and prone to misalignment between what humans author and what actually helps agent performance. It remains unclear how an agent could autonomously produce and refine such complex, multi-file skill packages without ground-truth supervision.",
+   "solution": "The paper proposes CoEvoSkills, which couples a Skill Generator that iteratively refines candidate skills with a Surrogate Verifier that co-evolves alongside it, supplying informative, actionable feedback without access to hidden ground-truth tests. This generator-verifier co-evolution loop lets agents autonomously construct complex multi-file skills, achieving the highest pass rate among baselines on SkillsBench and generalizing across multiple LLMs."
+  },
+  {
+   "arxiv_id": "2603.10165",
+   "title": "OpenClaw-RL: Train Any Agent Simply by Talking",
+   "published": "2026-03-10",
+   "url": "https://arxiv.org/abs/2603.10165",
+   "citations": 60,
+   "primary_category": "cs.CL",
+   "problem": "Every interaction of an AI agent produces a 'next-state' signal\u2014a user reply, tool output, or terminal/GUI state change\u2014that reflects whether the prior action worked, yet this signal is normally discarded rather than used to improve the agent, leaving deployed agents static despite constant real usage. Turning this into an online learning source requires infrastructure that does not block live inference and a way to combine sparse, high-quality feedback with more abundant, coarser feedback.",
+   "solution": "The paper presents OpenClaw-RL, which extends RL training to a server-client architecture where a policy server exposes an inference API while user terminals stream interaction data back over HTTP, with signal extraction handled by a separate asynchronous server so neither extraction nor optimization blocks inference. It introduces a hybrid RL objective unifying sparse token-level 'directive' signals with broader 'evaluative' signals in one update, plus overlap-guided hint selection and log-probability-difference clipping to stabilize distillation under teacher-student mismatch, letting agents improve simply from being used."
+  },
+  {
+   "arxiv_id": "2604.13016",
+   "title": "Rethinking On-Policy Distillation of Large Language Models: Phenomenology, Mechanism, and Recipe",
+   "published": "2026-04-14",
+   "url": "https://arxiv.org/abs/2604.13016",
+   "citations": 118,
+   "primary_category": "cs.LG",
+   "problem": "On-policy distillation is widely used to post-train large language models by having a student learn from a teacher's outputs on the student's own generated trajectories, but why this technique succeeds for some student-teacher pairs and fails for others is poorly understood, making it hard to predict or ensure a teacher actually transfers useful new capability rather than redundant or misaligned signal.",
+   "solution": "The paper shows on-policy distillation succeeds only when student and teacher share compatible thinking patterns and when the teacher provides genuinely new capability beyond what the student already exhibits, demonstrated via weak-to-strong reverse distillation showing same-family teachers can be distributionally indistinguishable from the student. It identifies that successful distillation is marked by progressive alignment on a small, high-probability shared token set at student-visited states, and proposes off-policy cold start and teacher-aligned prompt selection as practical strategies to rescue failing distillation runs."
+  },
+  {
+   "arxiv_id": "2602.22010",
+   "title": "World Guidance: World Modeling in Condition Space for Action Generation",
+   "published": "2026-02-25",
+   "url": "https://arxiv.org/abs/2602.22010",
+   "citations": 17,
+   "primary_category": "cs.RO",
+   "problem": "Vision-Language-Action models can benefit from modeling future observations to guide action generation, but existing approaches struggle to keep these future representations compact and efficient while retaining enough fine-grained detail to produce precise actions.",
+   "solution": "The paper proposes World Guidance (WoG), which maps future observations into compact 'condition' representations injected into the action inference pipeline, training the VLA to jointly predict these compressed conditions alongside future actions rather than raw future pixels. This condition-space world modeling preserves fine-grained cues for precise action generation while improving generalization and enabling effective learning from large-scale human manipulation videos."
+  },
+  {
+   "arxiv_id": "2606.15497",
+   "title": "Towards End-to-End Automation of AI Research",
+   "published": "2026-03-31",
+   "url": "https://arxiv.org/abs/2606.15497",
+   "citations": 153,
+   "primary_category": "cs.AI",
+   "problem": "Automating the full scientific research lifecycle\u2014from generating research ideas through running experiments to writing and reviewing a manuscript\u2014has remained out of reach, since prior automation efforts have only addressed isolated pieces of the research process rather than the entire pipeline end-to-end.",
+   "solution": "The paper presents The AI Scientist, an agentic system built on foundation models that autonomously generates research ideas, writes and executes code, runs experiments, analyzes and plots results, writes the full manuscript, and performs its own peer review. Evaluated in both a template-scaffolded mode and a template-free mode using agentic search, the system produced manuscripts that passed the first review round at a machine-learning workshop with a 70% acceptance rate."
+  },
+  {
+   "arxiv_id": "2603.04379",
+   "title": "Helios: Real Real-Time Long Video Generation Model",
+   "published": "2026-03-04",
+   "url": "https://arxiv.org/abs/2603.04379",
+   "citations": 30,
+   "primary_category": "cs.CV",
+   "problem": "Generating minute-scale video at real-time speed with a large model is difficult because autoregressive generation tends to drift into repetitive or degraded content over long horizons, and existing acceleration techniques (KV-caching, sparse/linear attention, quantization) or anti-drift heuristics (self-forcing, error banks, keyframe sampling) are typically required to make either quality or speed feasible, but not both together at large model scale.",
+   "solution": "A 14-billion-parameter autoregressive diffusion model with a unified input representation natively supports text-to-video, image-to-video, and video-to-video generation. Drifting is mitigated by explicitly simulating drift during training and removing the source of repetitive motion, rather than relying on the standard anti-drift heuristics, while real-time speed is achieved by heavily compressing historical and noisy context and reducing sampling steps, combined with infrastructure-level optimizations for memory and speed that avoid parallelism/sharding frameworks and standard inference accelerations."
+  }
+ ]
+}

@@ -5,11 +5,11 @@
 # search discovering retrieval on its own is a real result, not a hint.
 # Timestamped: answers as of 2026-07-21 (events from 2026-07-14 to 2026-07-21).
 task:
-  name: news_current
+  name: news_current_20260721
   description: >-
     Answer the question with a single short, specific answer — a name, number, place, or date — and nothing else.
   check_type: exact
-  dataset: benchmarks/news_current/data.jsonl
+  dataset: benchmarks/news_current_20260721/data.jsonl
   grader: benchmarks/_graders/contains.py
   answer_examples:
     - "Spain"

@@ -7,20 +7,26 @@ article aggregates (so one search/one call can't shortcut it — the single-call
 bypass is shut). If elaborate structure ever beats a single call within this
 harness, this is where it should show.
 
-Source of truth: `benchmarks/news_multihop/sources.json` — each item carries the
-composed question, the final answer, and the atomic `hops` (each with its own
-source URL and snippet) plus a derivation, all stamped with the gather date.
-Arithmetic is re-verified at build time from the hop-free `answer` field only in
-spirit; the derivations were checked by hand and four high-profile deaths were
-spot-checked against Wikipedia. Answers are resultative, so they do not drift.
+Source of truth: the newest `benchmarks/news_multihop*/sources.json` — each item
+carries the composed question, the final answer, and the atomic `hops` (each with
+its own source URL and snippet) plus a derivation, all stamped with the gather
+date. Arithmetic is re-verified at build time from the hop-free `answer` field
+only in spirit; the derivations were checked by hand and four high-profile deaths
+were spot-checked against Wikipedia. Answers are resultative, so they do not drift.
+
+The benchmark's NAME carries the freeze date (`news_multihop_<as_of>`), so the
+name itself says when the data goes stale and should be recycled. Refreshing
+sources.json with a new `as_of` and re-running writes a NEW stamped benchmark
+beside the old one rather than silently replacing it.
 
     uv run python scripts/build_news_multihop.py
 """
 import json
 import pathlib
 
+from build_news_current import newest_sources
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "benchmarks" / "news_multihop" / "sources.json"
 
 # The description the design agent sees (config/task/*.yaml -> the design prompt).
 # Deliberately NEUTRAL: only the answer format. It must not reveal that the events
@@ -42,8 +48,10 @@ ANSWER_EXAMPLES = ["188", "Wally Funk", "$27.83 billion", "Goldman Sachs"]
 
 def main() -> None:
     """Write data.jsonl, the benchmark descriptor, and the task config."""
-    src = json.loads(SRC.read_text())
+    src_path = newest_sources("news_multihop*")
+    src = json.loads(src_path.read_text())
     as_of, window, items = src["as_of"], src["window"], src["items"]
+    name = f"news_multihop_{as_of.replace('-', '')}"   # the name says when it goes stale
 
     rows = []
     for item in items:
@@ -53,12 +61,15 @@ def main() -> None:
         # examples the design agent is shown reveal neither recency nor the sources.
         rows.append({"question": item["question"], "answer": golds})
 
-    bench_dir = ROOT / "benchmarks" / "news_multihop"
+    bench_dir = ROOT / "benchmarks" / name
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    if src_path.parent != bench_dir:       # a refreshed freeze lands in its own dir
+        (bench_dir / "sources.json").write_text(src_path.read_text())
     (bench_dir / "data.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     (bench_dir / "benchmark.yaml").write_text(
-        "# news_multihop — cross-source multi-hop QA over recent news\n"
+        f"# {name} — cross-source multi-hop QA over recent news\n"
         f"# Timestamped: answers verified as of {as_of} (events from {window}).\n"
-        "name: news_multihop\n"
+        f"name: {name}\n"
         f"description: >-\n  {BENCH_DESCRIPTION}\n"
         "source_dataset: news\n"
         f"as_of: {as_of}\n"
@@ -70,7 +81,7 @@ def main() -> None:
         "grader: benchmarks/_graders/contains.py\n")
 
     examples_yaml = "\n".join(f"    - {json.dumps(e)}" for e in ANSWER_EXAMPLES)
-    (ROOT / "config" / "task" / "news_multihop.yaml").write_text(
+    (ROOT / "config" / "task" / f"{name}.yaml").write_text(
         "# Cross-source multi-hop QA over recent (post-cutoff) news. Closes both\n"
         "# bypasses: must retrieve (no recall) AND must combine facts from several\n"
         "# sources (no single-call shortcut). Open-book; code execution allowed.\n"
@@ -81,10 +92,10 @@ def main() -> None:
         "# of that on its own is a real result rather than a hint.\n"
         f"# Timestamped: answers as of {as_of} (events from {window}).\n"
         "task:\n"
-        "  name: news_multihop\n"
+        f"  name: {name}\n"
         f"  description: >-\n    {TASK_DESCRIPTION}\n"
         "  check_type: exact\n"
-        "  dataset: benchmarks/news_multihop/data.jsonl\n"
+        f"  dataset: benchmarks/{name}/data.jsonl\n"
         "  grader: benchmarks/_graders/contains.py\n"
         "  answer_examples:\n"
         f"{examples_yaml}\n"
@@ -95,7 +106,7 @@ def main() -> None:
 
     hops = sum(len(item["hops"]) for item in items)
     print(f"wrote {len(rows)} multi-hop questions ({hops} sourced hops, as of {as_of})")
-    print(f"wrote {bench_dir/'benchmark.yaml'} and config/task/news_multihop.yaml")
+    print(f"wrote {bench_dir/'benchmark.yaml'} and config/task/{name}.yaml")
 
 
 if __name__ == "__main__":

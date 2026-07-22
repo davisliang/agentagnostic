@@ -8,11 +8,11 @@
 # of that on its own is a real result rather than a hint.
 # Timestamped: answers as of 2026-07-21 (events from 2026-07-06 to 2026-07-21).
 task:
-  name: news_multihop
+  name: news_multihop_20260721
   description: >-
     Answer the question with a single short answer — a number or a name — and nothing else.
   check_type: exact
-  dataset: benchmarks/news_multihop/data.jsonl
+  dataset: benchmarks/news_multihop_20260721/data.jsonl
   grader: benchmarks/_graders/contains.py
   answer_examples:
     - "188"

@@ -1,0 +1,17 @@
+# ml_papers_20260722 — problem->solution over cited post-cutoff ML papers,
+# built by scripts/build_ml_papers.py
+# Papers submitted 2026-02-01:2026-07-22 (after the Jan 2026 model training cutoff)
+# with >10 citations each (Semantic Scholar).
+name: ml_papers_20260722
+description: >-
+  Problem -> solution over cited (>10 citations) arXiv ML papers submitted after the Jan 2026 training cutoff of the newest catalog models. A judge scores a proposed solution against the approach the paper actually took; post-cutoff, so the reference solutions cannot have been memorized.
+source_dataset: arxiv
+as_of: 2026-07-22
+window: '2026-02-01:2026-07-22'
+examples: 100
+grading_supported: true
+check_type: llm_judge
+grading_note: >-
+  Judge-graded against the paper's actual approach, so 'accuracy' is mean
+  similarity to the reference solution — an alternative valid solution
+  scores low by design.
