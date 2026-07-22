@@ -41,10 +41,14 @@ searches, watches them run, and compares what they found:
   plus ARC-AGI-2, with their example counts, graders and recorded baselines), or
   **describe a task** in free text and optionally upload your own `.jsonl`.
   Upload nothing and the examples are generated. **Tools workflows may use** —
-  code_execution and web_search — are checkboxes; uncheck web_search for a
-  closed-book task so no candidate can look answers up, and its numbers stay
-  comparable to a closed-book baseline. Only the listed settings are accepted
-  from the form; everything else comes from config.
+  code_execution, web_search and web_fetch — are checkboxes; uncheck the web
+  tools for a closed-book task so no candidate can look answers up, and its
+  numbers stay comparable to a closed-book baseline. **Skills** the design agent
+  is staged with are checkboxes too, sourced from the server's own `skills/`
+  listing, plus a **working skills** toggle that lets the agent keep a run-scoped
+  skills folder (notes and `helpers.py` operators) it extends across rounds. Only
+  the listed settings are accepted from the form; everything else comes from
+  config.
 - **Live progress** — phase pills (analyzing → researching → designing round *i* →
   ranking → done), the research notes the agent wrote for the task, candidates
   appearing with dev accuracy and cost as they are scored, and the raw log including
@@ -219,7 +223,6 @@ src/workflow_optimizer/
   runstore.py           one run's state on disk: status, events, log, result
   cli.py                `workflow-optimizer`
   dashboard/            the UI: stdlib server, runner subprocess, one static page
-notebooks/optimize.ipynb  the same pipeline, interactively
 runs/<run_id>/          per-run state the UI reads (gitignored)
 experiments/            benchmark comparisons (see routerllm_ifeval/)
 tests/                  everything checkable without spending money

@@ -33,8 +33,10 @@ class Reply(str):
             Also None if the model refused or the reply was truncated.
         usage: Token counts for the call.
         model: The model id that actually served the call, after routing.
+        truncated: True when the call hit the tool-turn cap mid-work, so the text
+            is a partial turn rather than a finished answer.
     """
-    def __new__(cls, text, blocks=(), usage=None, model="", data=None):
+    def __new__(cls, text, blocks=(), usage=None, model="", data=None, truncated=False):
         """Build a Reply.
 
         Args:
@@ -43,12 +45,14 @@ class Reply(str):
             usage: Token counts.
             model: Model id that served the call.
             data: Parsed JSON, when a schema was used.
+            truncated: Whether the tool-turn cap cut the call off.
         """
         reply = super().__new__(cls, text)
         reply.blocks = list(blocks)
         reply.usage = dict(usage or {})
         reply.model = model
         reply.data = data
+        reply.truncated = truncated
         return reply
 
 
@@ -183,7 +187,8 @@ class CallMeter:
         self.cost += cost
 
         reply = Reply(response.text, blocks=response.blocks, usage=response.usage,
-                      model=model, data=data)
+                      model=model, data=data,
+                      truncated=getattr(response, "truncated", False))
         self.records.append(CallRecord(model=model, prompt=str(prompt), reply=reply, cost=cost))
 
         if self.tokens > self.max_tokens:

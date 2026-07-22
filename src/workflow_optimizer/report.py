@@ -10,7 +10,7 @@ import json
 import pathlib
 
 from .optimizer import TEST, Candidate, Search
-from .pareto import best_under_budget, cheapest_above_accuracy, pareto_front
+from .pareto import best_under_budget, cheapest_above_accuracy
 
 
 def summarize(search: Search, cfg, log=print) -> None:
@@ -27,7 +27,7 @@ def summarize(search: Search, cfg, log=print) -> None:
         return
 
     log("\nPareto frontier (cheapest -> most accurate):")
-    for candidate in pareto_front(search.finalists, on=TEST):
+    for candidate in search.test_frontier():
         log(f"  {candidate.name:24s} accuracy {candidate.test.accuracy:.2f}   "
             f"${candidate.test.cost:.5f}/query")
 
@@ -52,7 +52,7 @@ def print_code(search: Search, log=print) -> None:
         search: A completed Search.
         log: Where the lines go.
     """
-    for candidate in pareto_front(search.finalists, on=TEST):
+    for candidate in search.test_frontier():
         log("=" * 72)
         log(f"{candidate.name}   —   accuracy {candidate.test.accuracy:.2f},  "
             f"${candidate.test.cost:.5f}/query")
@@ -84,7 +84,7 @@ def save(search: Search, cfg, out_dir=None) -> pathlib.Path:
         "description": cfg.task.description or cfg.task.seed_prompt,
         "rounds": cfg.designer.rounds,
         "candidates": [_as_dict(c) for c in search.archive],
-        "frontier": [c.name for c in pareto_front(search.finalists, on=TEST)],
+        "frontier": [c.name for c in search.test_frontier()],
     }, indent=1))
     return path
 
@@ -102,7 +102,7 @@ def plot(search: Search, path=None, show=False):
     """
     import matplotlib.pyplot as plt
 
-    frontier = pareto_front(search.finalists, on=TEST)
+    frontier = search.test_frontier()
     figure = plt.figure(figsize=(7, 5))
     for candidate in search.finalists:
         plt.scatter(candidate.test.cost, candidate.test.accuracy, color="#888888")

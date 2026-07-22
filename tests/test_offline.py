@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,7 +17,7 @@ from workflow_optimizer.analysis import Benchmark, TaskAnalysis
 from workflow_optimizer.config import load_config, load_resolved
 from workflow_optimizer.designer import _round_prompt, _stage_agent_dir, summarize_archive
 from workflow_optimizer.grading import Grader, as_number, extract_last_number
-from workflow_optimizer.client import ApiResponse
+from workflow_optimizer.client import ApiResponse, ModelClient
 from workflow_optimizer.models import ModelCatalog
 from workflow_optimizer.optimizer import DEV, TEST, Candidate
 from workflow_optimizer.pareto import best_under_budget, cheapest_above_accuracy, pareto_front
@@ -54,6 +55,64 @@ class FakeClient:
 
 def evaluator(cfg, catalog, grader=None):
     return Evaluator(FakeClient(catalog), grader or Grader(kind="numeric"), cfg.runtime)
+
+
+# ---- the client's tool-turn loop --------------------------------------------
+def _sdk_message(text, stop_reason):
+    """A minimal stand-in for an Anthropic SDK Message."""
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=text)],
+        stop_reason=stop_reason,
+        usage=SimpleNamespace(input_tokens=10, output_tokens=5,
+                              cache_creation_input_tokens=0, cache_read_input_tokens=0))
+
+
+class _FakeStream:
+    """What `messages.stream(...)` returns: a context manager over one Message."""
+
+    def __init__(self, message):
+        self.message = message
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def get_final_message(self):
+        return self.message
+
+
+class FakeSDK:
+    """Serves canned Messages in order, so the pause_turn resume loop can be driven."""
+
+    def __init__(self, replies):
+        self._replies = list(replies)
+        self.messages = self          # the client reaches it as client.messages.stream
+
+    def stream(self, **request):
+        return _FakeStream(self._replies.pop(0))
+
+
+def test_a_paused_call_resumes_and_the_last_response_wins(cfg, catalog):
+    # server-side tools pause the turn; the answer is the LAST response's text,
+    # never the working-up-to-it preamble spliced onto it
+    sdk = FakeSDK([_sdk_message("searching...", "pause_turn"),
+                   _sdk_message("42", "end_turn")])
+    response = ModelClient(catalog, cfg.call, client=sdk).call("claude-haiku-4-5", "q")
+    assert response.text == "42"
+    assert response.truncated is False
+    assert response.usage["input"] == 20 and response.usage["output"] == 10  # both turns billed
+
+
+def test_running_out_of_tool_turns_is_flagged_not_silent(cfg, catalog):
+    # still pause_turn when the cap runs out: the text is a partial turn, and
+    # nothing downstream can tell unless the response says so
+    turns = cfg.call.max_tool_turns
+    sdk = FakeSDK([_sdk_message(f"turn {i}", "pause_turn") for i in range(turns)])
+    response = ModelClient(catalog, cfg.call, client=sdk).call("claude-haiku-4-5", "q")
+    assert response.truncated is True
+    assert response.text == f"turn {turns - 1}"
 
 
 # ---- catalog and pricing ----------------------------------------------------
@@ -127,6 +186,18 @@ def test_the_two_constrained_picks():
     assert cheapest_above_accuracy(results(), 0.90).name == "cot"
     assert best_under_budget(results(), 0.0) is None
     assert cheapest_above_accuracy(results(), 1.0) is None
+
+
+def test_a_search_reports_its_frontier_on_test_scores():
+    from workflow_optimizer.optimizer import Search
+
+    # B is dominated on dev but not on test — the reported frontier must follow test
+    candidates = [
+        Candidate("A", "", "a", dev=SplitScore("A", 0.9, 0.001), test=SplitScore("A", 0.5, 0.001)),
+        Candidate("B", "", "b", dev=SplitScore("B", 0.5, 0.002), test=SplitScore("B", 0.9, 0.002)),
+    ]
+    search = Search(archive=candidates, finalists=candidates)
+    assert [c.name for c in search.test_frontier()] == ["A", "B"]
 
 
 def test_the_split_being_compared_on_is_the_callers_choice():
@@ -335,6 +406,17 @@ def test_working_skills_are_staged_for_reading_and_collected_after(tmp_path):
     (learned / "SKILL.md").write_text("---\nname: learned\n---\nstrip trailing whitespace")
     _collect_skills(agent_dir, run_skills)
     assert (run_skills / "learned" / "SKILL.md").exists()
+
+
+def test_the_meta_skill_in_the_skill_list_is_not_staged_twice(tmp_path):
+    # the UI lets a user pick skills AND flip working_skills on; if they pick
+    # workflow-skills explicitly, the second copytree used to FileExistsError
+    cfg = load_config("gsm8k", ["designer.working_skills=true",
+                                "designer.skills=[workflow-design,workflow-skills]"])
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    _stage_agent_dir(cfg, benchmark_fixture(), agent_dir, tmp_path / "rs")   # must not raise
+    assert (agent_dir / ".claude" / "skills" / "workflow-skills" / "SKILL.md").exists()
 
 
 def test_round_one_asks_for_diversity_and_later_rounds_extend_the_frontier(cfg):

@@ -27,12 +27,29 @@ from typing import Optional
 
 from omegaconf import OmegaConf
 
-from .paths import CONFIG_DIR, ROOT
+from .paths import CONFIG_DIR, ROOT, SKILLS_DIR
 
 RUNS_DIR = ROOT / "runs"
 
 # Phases a run moves through, in order. The UI renders these as pills.
 PHASES = ["queued", "analyzing", "researching", "designing", "ranking", "done"]
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Replace a file's contents in one step.
+
+    The server polls these files every few seconds while the runner writes them.
+    Writing in place risks a reader catching a half-written file — the readers
+    treat that as "missing", so a run would flicker out of the list mid-write.
+    A sibling temp file swapped in with `os.replace` is atomic on POSIX.
+
+    Args:
+        path: The file to (re)write.
+        text: Its new contents.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
 
 
 @dataclass
@@ -166,8 +183,8 @@ def write_status(status: RunStatus) -> None:
     Args:
         status: The status to write.
     """
-    path = run_dir(status.run_id) / "status.json"
-    path.write_text(json.dumps(asdict(status), indent=1))
+    _write_atomic(run_dir(status.run_id) / "status.json",
+                  json.dumps(asdict(status), indent=1))
 
 
 def read_status(run_id: str) -> Optional[RunStatus]:
@@ -313,10 +330,11 @@ def write_trace(run_id: str, candidate: str, split: str, records: list,
          "calls": [{"model": c.model, "cost": c.cost,
                     "prompt": clip(c.prompt), "reply": clip(c.reply),
                     "usage": dict(c.reply.usage),
+                    "truncated": getattr(c.reply, "truncated", False),
                     "data": c.reply.data if isinstance(c.reply.data, (dict, list)) else None}
                    for c in r["calls"]]}
         for r in records]}
-    (traces / trace_name(candidate, split)).write_text(json.dumps(payload, default=str))
+    _write_atomic(traces / trace_name(candidate, split), json.dumps(payload, default=str))
 
 
 def read_trace(run_id: str, candidate: str, split: str) -> Optional[dict]:
@@ -359,7 +377,7 @@ def write_research(run_id: str, notes: str) -> None:
         run_id: The run these belong to.
         notes: The `research_notes.md` text the research agent produced.
     """
-    (run_dir(run_id) / "research_notes.md").write_text(notes or "")
+    _write_atomic(run_dir(run_id) / "research_notes.md", notes or "")
 
 
 def read_research(run_id: str) -> str:
@@ -478,6 +496,48 @@ def _process_alive(pid: Optional[int]) -> bool:
     except (ProcessLookupError, PermissionError, OSError):
         return False
     return True
+
+
+# Skills the harness stages on its own, never offered as designer picks: the
+# meta-skill rides `designer.working_skills`, the research skill `designer.research`.
+# Offering them as picks would stage them twice.
+HARNESS_SKILLS = {"workflow-skills", "workflow-research"}
+
+
+def list_skills() -> list[dict]:
+    """The skills a design agent may be staged with, for the UI's picker.
+
+    The names come from the directory listing, so the form can never name a
+    skill that doesn't exist — the same closed-set pattern as the tools.
+
+    Returns:
+        `{"name", "description"}` per `skills/<name>/SKILL.md`, sorted by name,
+        excluding HARNESS_SKILLS. Empty if `skills/` is missing.
+    """
+    if not SKILLS_DIR.exists():
+        return []
+    found = []
+    for folder in sorted(SKILLS_DIR.iterdir()):
+        md = folder / "SKILL.md"
+        if not folder.is_dir() or folder.name in HARNESS_SKILLS or not md.exists():
+            continue
+        found.append({"name": folder.name, "description": _skill_description(md)})
+    return found
+
+
+def _skill_description(md: Path) -> str:
+    """Read the description line out of a SKILL.md's frontmatter.
+
+    Args:
+        md: Path to the SKILL.md.
+
+    Returns:
+        The `description:` value, or "" if the frontmatter has none.
+    """
+    for line in md.read_text().splitlines():
+        if line.startswith("description:"):
+            return line[len("description:"):].strip()
+    return ""
 
 
 BENCHMARKS_DIR = ROOT / "benchmarks"

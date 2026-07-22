@@ -25,10 +25,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .. import costs, runstore
+from .. import analysis, costs, paths, runstore
+from ..client import TOOL_DEFS
 from ..config import load_config
-from .. import paths
 from ..paths import ROOT
+from ..session import Session
 
 STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
 
@@ -42,6 +43,39 @@ FORM_FIELDS = {
     "report.max_cost_per_query": float,
     "report.min_accuracy": float,
 }
+
+# The server-side tools a workflow may be granted — sourced from the client's
+# registry so the form can never offer one the API doesn't know how to send.
+ALLOWED_WORKFLOW_TOOLS = sorted(TOOL_DEFS)
+
+
+def _dotlist(overrides: dict) -> tuple[list, str]:
+    """Turn the form's overrides into OmegaConf dotlist entries, or say why not.
+
+    The one gate every form-supplied setting passes through, so starting a run,
+    estimating one, and probing one all reject exactly the same inputs — three
+    hand-rolled copies of this loop had already drifted apart on unknown keys.
+
+    Args:
+        overrides: Config overrides keyed by dotted path, as the form sends them.
+            None or {} is fine. A blank value means "use the default" and is
+            skipped, since that is what the form submits for an untouched field.
+
+    Returns:
+        `(entries, "")` on success, or `([], reason)` when a key is not in
+        FORM_FIELDS or a value doesn't parse as that field's type.
+    """
+    entries = []
+    for key, raw in (overrides or {}).items():
+        if key not in FORM_FIELDS:
+            return [], f"unknown setting: {key}"
+        if raw is None or raw == "":
+            continue
+        try:
+            entries.append(f"{key}={FORM_FIELDS[key](raw)}")
+        except (TypeError, ValueError):
+            return [], f"bad value for {key}: {raw!r}"
+    return entries, ""
 
 
 def parse_dataset(text: str) -> tuple[list, str]:
@@ -91,14 +125,9 @@ def parse_dataset(text: str) -> tuple[list, str]:
     return examples, ""
 
 
-# The server-side tools a workflow may be granted — sourced from the client's
-# registry so the form can never offer one the API doesn't know how to send.
-from ..client import TOOL_DEFS
-ALLOWED_WORKFLOW_TOOLS = sorted(TOOL_DEFS)
-
-
 def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = "",
-              tools: list = None) -> dict:
+              tools: list = None, skills: list = None,
+              working_skills: Optional[bool] = None) -> dict:
     """Create a run directory and launch the pipeline against it.
 
     Args:
@@ -114,6 +143,12 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
         tools: Server-side tools workflows may use, a subset of
             ALLOWED_WORKFLOW_TOOLS. None leaves the task's config default; a list
             (including []) overrides it, so [] forbids all tools.
+        skills: Skills to stage the design agent with, a subset of
+            `runstore.list_skills()` names — they name directories, so anything
+            outside that listing (including the harness-managed skills) is
+            rejected. None leaves the config default.
+        working_skills: Whether the agent keeps a run-scoped skills directory it
+            writes and re-reads across rounds. None leaves the config default.
 
     Returns:
         `{"ok": True, "run_id": ...}`, or `{"ok": False, "error": ...}`.
@@ -122,20 +157,18 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
         bad = [x for x in tools if x not in ALLOWED_WORKFLOW_TOOLS]
         if bad:
             return {"ok": False, "error": f"unknown tool(s): {', '.join(bad)}"}
+    if skills is not None:
+        known = {s["name"] for s in runstore.list_skills()}
+        bad = [x for x in skills if x not in known]
+        if bad:
+            return {"ok": False, "error": f"unknown skill(s): {', '.join(bad)}"}
     freetext = bool(prompt and prompt.strip())
     if not freetext and task not in runstore.list_tasks():
         return {"ok": False, "error": f"unknown task: {task}"}
 
-    dotlist = []
-    for key, raw in (overrides or {}).items():
-        if key not in FORM_FIELDS:
-            return {"ok": False, "error": f"unknown setting: {key}"}
-        if raw is None or raw == "":
-            continue
-        try:
-            dotlist.append(f"{key}={FORM_FIELDS[key](raw)}")
-        except (TypeError, ValueError):
-            return {"ok": False, "error": f"bad value for {key}: {raw!r}"}
+    dotlist, reason = _dotlist(overrides)
+    if reason:
+        return {"ok": False, "error": reason}
 
     examples = []
     if dataset_text:
@@ -157,13 +190,17 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
 
     if tools is not None:
         cfg.runtime.tools = list(tools)
+    if skills is not None:
+        cfg.designer.skills = list(skills)
+    if working_skills is not None:
+        cfg.designer.working_skills = bool(working_skills)
 
     status = runstore.create_run(cfg.task.name, cfg)
     if examples:
         data_file = runstore.run_dir(status.run_id) / "dataset.jsonl"
         data_file.write_text("".join(json.dumps(e) + "\n" for e in examples))
         cfg.task.dataset = str(data_file)
-    if examples or tools is not None:
+    if examples or tools is not None or skills is not None or working_skills is not None:
         runstore.write_config(status.run_id, cfg)
     process = subprocess.Popen(
         [sys.executable, "-u", "-m", "workflow_optimizer.dashboard.runner", status.run_id],
@@ -227,14 +264,9 @@ def estimate_cost(task: str, overrides: dict, freetext: bool = False,
         The Estimate as a dict, or `{"error": ...}` if the settings don't load —
         the same rejections `start_run` would give, surfaced before spending.
     """
-    dotlist = []
-    for key, raw in (overrides or {}).items():
-        if key not in FORM_FIELDS or raw in (None, ""):
-            continue
-        try:
-            dotlist.append(f"{key}={FORM_FIELDS[key](raw)}")
-        except (TypeError, ValueError):
-            return {"error": f"bad value for {key}: {raw!r}"}
+    dotlist, reason = _dotlist(overrides)
+    if reason:
+        return {"error": reason}
     if not freetext and task not in runstore.list_tasks():
         return {"error": f"unknown task: {task}"}
 
@@ -249,9 +281,7 @@ def estimate_cost(task: str, overrides: dict, freetext: bool = False,
     guess = costs.estimate(cfg, history, generates_data=generates,
                            judged=None if not freetext else False,
                            available=_dataset_size(cfg))
-    return {"low": guess.low, "expected": guess.expected, "high": guess.high,
-            "breakdown": guess.breakdown, "assumptions": guess.assumptions,
-            "based_on_runs": guess.based_on_runs}
+    return _estimate_dict(guess)
 
 
 def probe_and_estimate(task: str, overrides: dict) -> dict:
@@ -271,15 +301,11 @@ def probe_and_estimate(task: str, overrides: dict) -> dict:
         The estimate, with a "probe" block describing the measurement, or
         `{"error": ...}`.
     """
-    from .. import analysis
-    from ..session import Session
-
     base = estimate_cost(task, overrides)
     if base.get("error"):
         return base
 
-    dotlist = [f"{k}={FORM_FIELDS[k](v)}" for k, v in (overrides or {}).items()
-               if k in FORM_FIELDS and v not in (None, "")]
+    dotlist, _ = _dotlist(overrides)       # estimate_cost above already validated
     cfg = load_config(task, dotlist)
     if not cfg.task.dataset:
         return {**base, "probe": {"skipped": "this task generates its own examples, "
@@ -300,13 +326,11 @@ def probe_and_estimate(task: str, overrides: dict) -> dict:
                               for s in runstore.list_runs()])
     guess = costs.estimate(cfg, history, generates_data=False, probe=measured,
                            available=_dataset_size(cfg))
-    return {"low": guess.low, "expected": guess.expected, "high": guess.high,
-            "breakdown": guess.breakdown, "assumptions": guess.assumptions,
-            "based_on_runs": guess.based_on_runs,
-            "probe": {"n": measured.n, "model": measured.model,
-                      "input_tokens": measured.input_tokens,
-                      "output_tokens": measured.output_tokens,
-                      "accuracy": measured.accuracy, "cost": measured.cost}}
+    return _estimate_dict(guess, probe={
+        "n": measured.n, "model": measured.model,
+        "input_tokens": measured.input_tokens,
+        "output_tokens": measured.output_tokens,
+        "accuracy": measured.accuracy, "cost": measured.cost})
 
 
 def compare_examples(run_id: str, split: str = "dev", limit: int = 200) -> dict:
@@ -453,6 +477,21 @@ def _dataset_size(cfg) -> Optional[int]:
         return None
 
 
+def _estimate_dict(guess: costs.Estimate, **extra) -> dict:
+    """Render an Estimate as the JSON shape both estimate endpoints return.
+
+    Args:
+        guess: The estimate to convert.
+        **extra: Additional fields to include — e.g. the probe description.
+
+    Returns:
+        The estimate's fields as a plain dict, plus `extra`.
+    """
+    return {"low": guess.low, "expected": guess.expected, "high": guess.high,
+            "breakdown": guess.breakdown, "assumptions": guess.assumptions,
+            "based_on_runs": guess.based_on_runs, **extra}
+
+
 def _status_dict(status) -> dict:
     """Render a RunStatus as JSON-safe fields.
 
@@ -519,11 +558,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._html(f"<h1>500</h1><p>missing {STATIC_INDEX}</p>")
                 return self._html(STATIC_INDEX.read_text(encoding="utf-8"))
             if path == "/api/tasks":
+                base = load_config()
                 return self._json({"tasks": runstore.list_tasks(),
                                    "benchmarks": runstore.list_benchmarks(),
                                    "fields": sorted(FORM_FIELDS),
                                    "workflow_tools": ALLOWED_WORKFLOW_TOOLS,
-                                   "default_tools": list(load_config().runtime.tools)})
+                                   "default_tools": list(base.runtime.tools),
+                                   "skills": runstore.list_skills(),
+                                   "default_skills": list(base.designer.skills),
+                                   "default_working_skills": bool(base.designer.working_skills)})
             if path == "/api/compare":
                 return self._json(compare_runs())
             if path == "/api/estimate":
@@ -584,7 +627,9 @@ class Handler(BaseHTTPRequestHandler):
                 result = start_run(body.get("task", ""), body.get("overrides", {}),
                                    prompt=body.get("prompt", ""),
                                    dataset_text=body.get("dataset", ""),
-                                   tools=body.get("tools"))
+                                   tools=body.get("tools"),
+                                   skills=body.get("skills"),
+                                   working_skills=body.get("working_skills"))
                 return self._json(result, code=200 if result.get("ok") else 400)
             if path.startswith("/api/run/") and path.endswith("/stop"):
                 run_id = path[len("/api/run/"):-len("/stop")]

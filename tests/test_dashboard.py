@@ -346,6 +346,8 @@ def test_a_supplied_dataset_removes_the_generation_cost(runs_dir):
 def test_an_estimate_refuses_the_same_things_a_run_would(runs_dir):
     assert "unknown task" in server.estimate_cost("../etc/passwd", {})["error"]
     assert "bad value" in server.estimate_cost("gsm8k", {"designer.rounds": "; rm -rf /"})["error"]
+    # an unknown key used to be silently skipped here while start_run rejected it
+    assert "unknown setting" in server.estimate_cost("gsm8k", {"task.grader": "x"})["error"]
 
 
 # ---- a stopped or failed run must not lose what it already paid for ---------
@@ -367,6 +369,18 @@ def test_partial_results_are_written_when_a_run_is_cut_short(a_run, monkeypatch)
     saved = runstore.read_result(a_run.run_id)
     assert [c["name"] for c in saved["candidates"]] == ["H", "S"]
     assert saved["candidates"][0]["dev"]["accuracy"] == 0.4
+
+
+def test_a_run_whose_config_cannot_load_is_marked_failed(a_run):
+    """`cfg` used to be bound inside the try, so a config that failed to load
+    crashed the failure handler itself and left the run "running" forever."""
+    from workflow_optimizer.dashboard import runner
+
+    (runstore.run_dir(a_run.run_id) / "config.yaml").write_text("{ not yaml [")
+    assert runner.main(a_run.run_id) == 1
+    status = runstore.read_status(a_run.run_id)
+    assert status.state == "failed"
+    assert status.error                     # the real message, not an UnboundLocalError
 
 
 def test_writing_results_for_an_empty_search_is_a_no_op(a_run):
@@ -585,6 +599,35 @@ def test_comparing_answers_needs_traces(a_run):
         "cached_input_frac": 0.0, "errors": []})
     result = server.compare_examples(a_run.run_id, "dev")
     assert result["rows"] == [] and "no dev traces" in result["note"]
+
+
+def test_skills_are_listed_for_the_picker():
+    names = {s["name"] for s in runstore.list_skills()}
+    assert "workflow-design" in names and "workflow-eval" in names
+    # the harness-managed skills are not offered — they ride their own toggles
+    assert "workflow-skills" not in names and "workflow-research" not in names
+    assert all(s["description"] for s in runstore.list_skills())
+
+
+def test_the_skills_selection_persists_and_is_validated(runs_dir, monkeypatch):
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **k: type("P", (), {"pid": 4242})())
+    # a made-up skill and a harness-managed one are both refused — they name
+    # directories, and the form is not a shell
+    assert "unknown skill" in server.start_run("gsm8k", {}, skills=["telepathy"])["error"]
+    assert "unknown skill" in server.start_run("gsm8k", {}, skills=["workflow-skills"])["error"]
+    # a valid pick and the working-skills toggle land in the run's config
+    result = server.start_run("gsm8k", {}, skills=["workflow-design", "workflow-eval"],
+                              working_skills=True)
+    assert result["ok"] is True
+    cfg = load_resolved(runstore.run_dir(result["run_id"]) / "config.yaml")
+    assert list(cfg.designer.skills) == ["workflow-design", "workflow-eval"]
+    assert cfg.designer.working_skills is True
+    # untouched, both keep the config default
+    result = server.start_run("gsm8k", {})
+    cfg = load_resolved(runstore.run_dir(result["run_id"]) / "config.yaml")
+    assert list(cfg.designer.skills) == list(load_config("gsm8k").designer.skills)
+    assert cfg.designer.working_skills is False
 
 
 def test_the_tools_selection_persists_and_is_validated(runs_dir, monkeypatch):

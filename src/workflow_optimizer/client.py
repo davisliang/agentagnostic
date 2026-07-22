@@ -45,10 +45,13 @@ class ApiResponse:
             uses, tool results, text), in order. Kept whole for the trace.
         usage: Token counts with keys "input", "output", "cache_write" and
             "cache_read".
+        truncated: True when the call ran out of tool turns while the model was
+            still working — `text` is then a partial turn, not a finished answer.
     """
     text: str
     blocks: list = field(default_factory=list)
     usage: dict = field(default_factory=dict)
+    truncated: bool = False
 
 
 class ModelClient:
@@ -80,7 +83,10 @@ class ModelClient:
             raise RuntimeError("Set ANTHROPIC_API_KEY — every call here is a real API call.")
         self.catalog = catalog
         self.cfg = call_cfg
-        self.client = client or anthropic.Anthropic()
+        # A transient 529 "Overloaded" on one call would otherwise score that
+        # example 0 and understate a candidate. Retry generously (the SDK backs off
+        # exponentially) so infra load doesn't leak into the accuracy signal.
+        self.client = client or anthropic.Anthropic(max_retries=8)
 
     def call(self, model: str, prompt, system: Optional[str] = None,
              tools: Optional[list[str]] = None, effort: Optional[str] = None,
@@ -106,11 +112,13 @@ class ModelClient:
 
         Returns:
             An ApiResponse carrying the final text, every content block, and the
-            summed token usage across all turns of the call.
+            summed token usage across all turns of the call. `truncated` is set
+            when the tool-turn cap cut the call off mid-work.
         """
         request = self._request(model, prompt, system, tools, effort, schema)
         turn_texts, blocks = [], []
         usage = {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0}
+        truncated = False
 
         for _ in range(self.cfg.max_tool_turns):
             # Streamed because max_output_tokens is large: the SDK refuses a
@@ -129,11 +137,17 @@ class ModelClient:
             if message.stop_reason != "pause_turn":
                 break
             request["messages"].append({"role": "assistant", "content": message.content})
+        else:
+            # Every turn ended in pause_turn: the cap cut the call off with the
+            # model still working. The text below is a partial turn — flag it
+            # rather than pass it off as a finished answer.
+            truncated = True
 
         # The LAST response holds the answer; earlier ones are the model working
         # up to it. Concatenating across responses would splice that preamble onto
         # the answer — and with `schema` set, produce unparseable JSON.
-        return ApiResponse(text=turn_texts[-1] if turn_texts else "", blocks=blocks, usage=usage)
+        return ApiResponse(text=turn_texts[-1] if turn_texts else "", blocks=blocks,
+                           usage=usage, truncated=truncated)
 
     def parse(self, model: str, prompt: str, schema_model: type[BaseModel]) -> BaseModel:
         """Make one structured call and validate the reply into a Pydantic model.

@@ -8,6 +8,12 @@ through a run is a good way to compare two different things by accident.
 """
 from typing import Callable, Optional
 
+# The two split accessors. Defined here — the one module both the optimizer and
+# the designer already import — so neither has to define its own copy or import
+# the other for it (designer ← optimizer would be a cycle).
+DEV = lambda candidate: candidate.dev      # noqa: E731
+TEST = lambda candidate: candidate.test    # noqa: E731
+
 
 def _identity(item):
     """Default accessor: the item already carries `.accuracy` and `.cost`."""
@@ -23,7 +29,7 @@ def pareto_front(items: list, on: Callable = _identity) -> list:
     Args:
         items: The candidates or scores to compare.
         on: Maps an item to the object holding `.accuracy` and `.cost`. Use `DEV`
-            or `TEST` from `optimizer` to pick a split.
+            or `TEST` above to pick a split.
 
     Returns:
         The non-dominated items, cheapest first, as the same objects passed in.

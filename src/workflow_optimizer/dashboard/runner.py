@@ -53,6 +53,10 @@ def main(run_id: str) -> int:
         elif kind == "ranking":
             runstore.update_status(run_id, phase="ranking")
 
+    # Bound before the try: the failure path below references both, and a config
+    # that fails to load would otherwise crash the handler itself — leaving the
+    # run marked "running" forever instead of "failed" with the real error.
+    cfg = search = None
     try:
         cfg = load_resolved(directory / "config.yaml")
         session = Session.from_config(cfg)
@@ -99,7 +103,7 @@ def main(run_id: str) -> int:
         log("\n" + traceback.format_exc())
         # Keep whatever was already scored — a search that fails in round 3 still
         # spent real money on rounds 1 and 2.
-        saved = _write_result(run_id, cfg, locals().get("search"))
+        saved = _write_result(run_id, cfg, search)
         runstore.update_status(run_id, phase="failed", state="failed",
                                ended_at=time.time(), error=message)
         runstore.append_event(run_id, {"event": "failed", "error": message,

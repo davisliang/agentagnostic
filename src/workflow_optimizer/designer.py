@@ -23,11 +23,8 @@ import tempfile
 from omegaconf import OmegaConf
 
 from . import prompts
-from .pareto import pareto_front
+from .pareto import DEV, pareto_front
 from .paths import ROOT, SKILLS_DIR, resolve
-
-# The candidates the agent sees are only ever dev-scored; test is held out.
-_ON_DEV = lambda candidate: candidate.dev      # noqa: E731
 
 
 def summarize_archive(candidates: list, failures_shown: int = 4,
@@ -62,7 +59,8 @@ def summarize_archive(candidates: list, failures_shown: int = 4,
     """
     if not candidates:
         return ""
-    frontier = pareto_front(candidates, on=_ON_DEV)
+    # The candidates the agent sees are only ever dev-scored; test is held out.
+    frontier = pareto_front(candidates, on=DEV)
     on_frontier = {id(c) for c in frontier}
 
     dominated = [c for c in candidates if id(c) not in on_frontier]
@@ -218,7 +216,7 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
     _stage_agent_dir(cfg, benchmark, agent_dir, run_skills_dir)
 
     skills = list(cfg.designer.skills)
-    if cfg.designer.working_skills:
+    if cfg.designer.working_skills and "workflow-skills" not in skills:
         skills.append("workflow-skills")     # teaches the agent to read/write working_skills/
     (agent_dir / "proposer_config.json").write_text(json.dumps({
         "model": cfg.designer.model,
@@ -289,7 +287,8 @@ def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path, run_skills_dir=Non
         # SKILL.md notes and helpers.py operators — for it to read and extend. Kept
         # OUT of .claude/skills so an agent-written note with bad frontmatter can't
         # break the SDK's skill loading; the agent reads it via the meta-skill.
-        shutil.copytree(SKILLS_DIR / "workflow-skills", skills_dir / "workflow-skills")
+        if not (skills_dir / "workflow-skills").exists():    # may already be in designer.skills
+            shutil.copytree(SKILLS_DIR / "workflow-skills", skills_dir / "workflow-skills")
         working = agent_dir / "working_skills"
         if run_skills_dir and pathlib.Path(run_skills_dir).exists():
             shutil.copytree(run_skills_dir, working)     # bring forward notes AND helpers.py

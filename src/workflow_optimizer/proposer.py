@@ -40,7 +40,13 @@ async def main() -> None:
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
-                    print(block.text[:300], flush=True)
+                    # The run log shows this as "the agent's own output", so keep
+                    # enough to read its reasoning — and say when it was cut,
+                    # rather than ending mid-sentence as if that were all.
+                    text = block.text
+                    if len(text) > 2000:
+                        text = text[:2000] + f" [… clipped {len(block.text) - 2000} chars]"
+                    print(text, flush=True)
                 elif isinstance(block, ToolUseBlock):
                     print(f"  [tool] {block.name}", flush=True)
         elif isinstance(message, ResultMessage):

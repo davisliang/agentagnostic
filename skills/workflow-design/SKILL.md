@@ -35,8 +35,13 @@ def solve(question, call_model):
   you passed a `schema`), `.usage`, `.model`.
     - `model=<name>` — route to a specific model (see `MODELS`, cheap → expensive).
     - `system="..."` — set a system prompt for that call.
-    - `tools=["code_execution"]` and/or `tools=["web_search"]` — let the model run
-      Python or search the web (server-side; results come back in the same reply).
+    - `tools=[...]` — server-side tools; they run on the API side and the results
+      come back in the same reply. `"code_execution"` runs Python,
+      `"web_search"` searches the web, `"web_fetch"` reads a URL already present
+      in the prompt. The prompt says which are allowed for THIS task — calling any
+      other fails the query. The web tools bundle their own code execution, so
+      `"code_execution"` cannot be combined with either web tool in one call
+      (any one of them alone is fine).
     - `effort="low"|"medium"|"high"|"xhigh"|"max"` — turn on the model's own
       step-by-step thinking at that depth (Sonnet 5 / Opus 4.8 only; ignored on the
       cheap model). Costs more tokens; the per-query budget still applies.

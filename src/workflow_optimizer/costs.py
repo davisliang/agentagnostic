@@ -20,8 +20,12 @@ measurement is used and labelled `measured`; otherwise a documented default is
 used and labelled `default`. An estimate that hides which is which invites more
 trust than it has earned.
 """
+import json
 from dataclasses import dataclass, field
 from statistics import median
+
+from .models import ModelCatalog
+from .runtime import ANSWER_SCHEMA
 
 # Defaults used only until this machine has measured the real thing. Each is a
 # rough central value; the range below widens generously around them.
@@ -219,7 +223,6 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
                         lambda v: f"{v:.1f} candidates per round")
     probe_range = None
     if probe is not None and probe.n:
-        from .models import ModelCatalog
         catalog = ModelCatalog.from_config(cfg)
         probe_low, per_query, probe_high, why = per_query_from_probe(catalog, probe)
         probe_range = (probe_low, probe_high)
@@ -352,8 +355,6 @@ def run_probe(cfg, client, grader, examples: list, n: int = 5) -> Probe:
     Returns:
         A Probe. `n` is 0 if there were no examples to run.
     """
-    from .runtime import ANSWER_SCHEMA
-
     chosen = examples[:n]
     if not chosen:
         return Probe()
@@ -373,8 +374,7 @@ def run_probe(cfg, client, grader, examples: list, n: int = 5) -> Probe:
         outputs.append(usage["output"])
         spent += client.catalog.cost_usd(model, usage)
         try:
-            import json as _json
-            answer = _json.loads(response.text).get("answer", response.text)
+            answer = json.loads(response.text).get("answer", response.text)
         except ValueError:
             answer = response.text
         try:

@@ -15,14 +15,11 @@ from typing import Optional
 
 from . import designer, research
 from .analysis import Benchmark
-from .pareto import pareto_front
+# DEV / TEST are re-exported here for callers' convenience: this is the module
+# that defines Candidate, the thing they select a split of.
+from .pareto import DEV, TEST, pareto_front
 from .runtime import Evaluator, SplitScore
 from .session import Session
-
-# Which split to compare candidates on. Pass one to the pareto helpers so every
-# comparison says out loud which numbers it is using.
-DEV = lambda candidate: candidate.dev      # noqa: E731
-TEST = lambda candidate: candidate.test    # noqa: E731
 
 
 @dataclass
@@ -64,6 +61,16 @@ class Search:
     """
     archive: list[Candidate] = field(default_factory=list)
     finalists: list[Candidate] = field(default_factory=list)
+
+    def test_frontier(self) -> list[Candidate]:
+        """The finalists still non-dominated on their held-out test scores.
+
+        The finalists are the DEV frontier re-scored on test, and test can
+        reshuffle them — a candidate that led on dev may be dominated on test.
+        Everything reported as "the frontier" recomputes it on the test numbers
+        through this one method.
+        """
+        return pareto_front(self.finalists, on=TEST)
 
 
 def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
@@ -136,7 +143,11 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
                                                  log=log, on_cost=report_cost,
                                                  research_notes=research_notes,
                                                  run_skills_dir=run_skills_dir):
-            if any(program["code"] == c.code for c in search.archive):   # skip exact repeats
+            # Skip exact repeats. A candidate's behavior is its code AND the
+            # operators it may call, so the same code resubmitted after
+            # helpers.py changed is a new candidate, not a repeat.
+            if any(program["code"] == c.code and program.get("helpers", "") == c.helpers
+                   for c in search.archive):
                 continue
             candidate = Candidate(name=_unique_name(program["name"], search.archive),
                                   description=program.get("description", ""),
