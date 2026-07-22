@@ -164,7 +164,7 @@ let activeId = null, timer = null, selectedCandidate = null, showNew = false;
 let candView = "code", traceCache = null, logLines = 400;   // verbose-view state
 let view = "runs", newMode = "benchmark", uploaded = null, benchmarks = [];
 let workflowTools = [], toolChoice = null;   // null = use the task default
-let skillChoice = null, workingSkills = null;   // null = use the config default
+let extraSkills = null, workingSkills = null;   // extras beyond the core set; null = untouched
 let compareTask = "", comparePoints = [];
 let answersSplit = "", answersData = null;   // side-by-side answers, "" = closed
 let frontierPoints = [], hoveringChart = false;   // hovering pauses the refresh
@@ -239,7 +239,6 @@ async function fillTasks() {
     workflowTools = data.workflow_tools || [];
     window._defaultTools = data.default_tools || [];
     window._skills = data.skills || [];
-    window._defaultSkills = data.default_skills || [];
     window._defaultWorking = !!data.default_working_skills;
   }
   slot.innerHTML = newMode === "benchmark" ? benchmarkPicker() : promptFields();
@@ -293,35 +292,48 @@ function defaultTools() {
   return window._defaultTools || [];
 }
 
-// Which skills the design agent is staged with, and whether it keeps a
-// run-scoped skills folder of its own. Left at the config default unless
-// touched; the server validates picks against its own skills/ listing.
+// Which skills the design agent is staged with. The core set is locked on: the
+// round prompt drives the agent through those skills BY NAME, so a form that
+// could drop one would produce agents told to use a skill they don't have —
+// every candidate malformed, the whole round paid for and wasted. The form only
+// ADDS skills (a folder you create under skills/<name>/SKILL.md appears here);
+// removing core skills is a config-level decision.
 function renderSkills() {
   const box = document.getElementById("f-skills");
   if (!box) return;
-  const current = skillChoice || window._defaultSkills || [];
+  const extras = extraSkills || [];
   const working = workingSkills == null ? (window._defaultWorking || false) : workingSkills;
   const row = (inner, extra) => `<label style="display:flex;gap:6px;align-items:baseline;
       text-transform:none;color:#bdc4d3;font-size:12px;margin:0${extra || ""}">${inner}</label>`;
+  const clipDesc = d => esc(d.slice(0, 110)) + (d.length > 110 ? "…" : "");
+  const optional = (window._skills || []).filter(s => !s.required);
   box.innerHTML = `<label>skills the design agent is staged with</label>
     <div style="display:flex;flex-direction:column;gap:4px">` +
-    (window._skills || []).map(s => row(
-      `<input type="checkbox" ${current.includes(s.name) ? "checked" : ""}
+    (window._skills || []).filter(s => s.required).map(s => row(
+      `<input type="checkbox" checked disabled style="width:auto;flex:none">
+       <span><span style="font-family:ui-monospace,Menlo,monospace">${esc(s.name)}</span>
+         <span style="color:#7c8699"> — ${clipDesc(s.description)}</span></span>`)).join("") +
+    optional.map(s => row(
+      `<input type="checkbox" ${extras.includes(s.name) ? "checked" : ""}
          onchange="toggleSkill('${esc(s.name)}',this.checked)" style="width:auto;flex:none">
        <span><span style="font-family:ui-monospace,Menlo,monospace">${esc(s.name)}</span>
-         <span style="color:#7c8699"> — ${esc(s.description.slice(0, 110))}${s.description.length > 110 ? "…" : ""}</span></span>`)).join("") +
+         <span style="color:#7c8699"> — ${clipDesc(s.description)}</span></span>`)).join("") +
     row(`<input type="checkbox" ${working ? "checked" : ""}
          onchange="workingSkills=this.checked" style="width:auto;flex:none">
        <span><span style="font-family:ui-monospace,Menlo,monospace">working skills</span>
          <span style="color:#7c8699"> — the agent also keeps a run-scoped skills folder it writes and
          re-reads across rounds: lessons as SKILL.md notes, plus operators in helpers.py its
          workflows can call by name</span></span>`, ";margin-top:4px") +
-    `</div>`;
+    `</div>
+    <div class="desc" style="margin-top:4px">The ticked-and-locked skills are the methodology —
+      the design prompt drives the agent through them by name, so they always stage.
+      ${optional.length ? "Tick an extra to stage it too." :
+        "Add your own under <code>skills/&lt;name&gt;/SKILL.md</code> and it appears here as an option."}</div>`;
 }
 
 function toggleSkill(name, on) {
-  const base = (skillChoice || window._defaultSkills || []).slice();
-  skillChoice = on ? [...new Set([...base, name])] : base.filter(s => s !== name);
+  const base = (extraSkills || []).slice();
+  extraSkills = on ? [...new Set([...base, name])] : base.filter(s => s !== name);
 }
 
 
@@ -489,7 +501,7 @@ async function startRun(ev) {
     prompt: newMode === "prompt" ? (document.getElementById("f-prompt").value || "") : "",
     dataset: newMode === "prompt" ? (uploaded || "") : "",
     tools: toolChoice,
-    skills: skillChoice,
+    extra_skills: extraSkills,
     working_skills: workingSkills,
     overrides: {
       "designer.rounds": document.getElementById("f-rounds").value,

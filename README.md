@@ -43,12 +43,14 @@ searches, watches them run, and compares what they found:
   Upload nothing and the examples are generated. **Tools workflows may use** —
   code_execution, web_search and web_fetch — are checkboxes; uncheck the web
   tools for a closed-book task so no candidate can look answers up, and its
-  numbers stay comparable to a closed-book baseline. **Skills** the design agent
-  is staged with are checkboxes too, sourced from the server's own `skills/`
-  listing, plus a **working skills** toggle that lets the agent keep a run-scoped
-  skills folder (notes and `helpers.py` operators) it extends across rounds. Only
-  the listed settings are accepted from the form; everything else comes from
-  config.
+  numbers stay comparable to a closed-book baseline. **Skills** show as
+  checkboxes too: the core set is locked on (the design prompt drives the agent
+  through those by name, so dropping one would buy a round of malformed
+  candidates), any skill you add under `skills/<name>/SKILL.md` appears as an
+  optional extra, and a **working skills** toggle lets the agent keep a
+  run-scoped skills folder (notes and `helpers.py` operators) it extends across
+  rounds. Only the listed settings are accepted from the form; everything else
+  comes from config.
 - **Live progress** — phase pills (analyzing → researching → designing round *i* →
   ranking → done), the research notes the agent wrote for the task, candidates
   appearing with dev accuracy and cost as they are scored, and the raw log including

@@ -609,24 +609,36 @@ def test_skills_are_listed_for_the_picker():
     assert all(s["description"] for s in runstore.list_skills())
 
 
-def test_the_skills_selection_persists_and_is_validated(runs_dir, monkeypatch):
+def test_extra_skills_add_to_the_core_set_never_replace_it(runs_dir, monkeypatch, tmp_path):
+    """The round prompt drives the agent through the core skills by name, so the
+    form can only ADD skills — a form that could drop workflow-design would
+    produce a full-price round of malformed candidates."""
     monkeypatch.setattr(server.subprocess, "Popen",
                         lambda *a, **k: type("P", (), {"pid": 4242})())
     # a made-up skill and a harness-managed one are both refused — they name
     # directories, and the form is not a shell
-    assert "unknown skill" in server.start_run("gsm8k", {}, skills=["telepathy"])["error"]
-    assert "unknown skill" in server.start_run("gsm8k", {}, skills=["workflow-skills"])["error"]
-    # a valid pick and the working-skills toggle land in the run's config
-    result = server.start_run("gsm8k", {}, skills=["workflow-design", "workflow-eval"],
-                              working_skills=True)
+    assert "unknown skill" in server.start_run("gsm8k", {}, extra_skills=["telepathy"])["error"]
+    assert "unknown skill" in server.start_run(
+        "gsm8k", {}, extra_skills=["workflow-skills"])["error"]
+
+    # a skill the user dropped into skills/ is appended to the core set
+    fake_skills = tmp_path / "skillset"
+    (fake_skills / "my-domain").mkdir(parents=True)
+    (fake_skills / "my-domain" / "SKILL.md").write_text(
+        "---\nname: my-domain\ndescription: domain notes\n---\nnotes")
+    monkeypatch.setattr(runstore, "SKILLS_DIR", fake_skills)
+
+    core = list(load_config("gsm8k").designer.skills)
+    result = server.start_run("gsm8k", {}, extra_skills=["my-domain"], working_skills=True)
     assert result["ok"] is True
     cfg = load_resolved(runstore.run_dir(result["run_id"]) / "config.yaml")
-    assert list(cfg.designer.skills) == ["workflow-design", "workflow-eval"]
+    assert list(cfg.designer.skills) == core + ["my-domain"]   # added — core intact
     assert cfg.designer.working_skills is True
+
     # untouched, both keep the config default
     result = server.start_run("gsm8k", {})
     cfg = load_resolved(runstore.run_dir(result["run_id"]) / "config.yaml")
-    assert list(cfg.designer.skills) == list(load_config("gsm8k").designer.skills)
+    assert list(cfg.designer.skills) == core
     assert cfg.designer.working_skills is False
 
 

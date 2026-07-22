@@ -126,7 +126,7 @@ def parse_dataset(text: str) -> tuple[list, str]:
 
 
 def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = "",
-              tools: list = None, skills: list = None,
+              tools: list = None, extra_skills: list = None,
               working_skills: Optional[bool] = None) -> dict:
     """Create a run directory and launch the pipeline against it.
 
@@ -143,10 +143,13 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
         tools: Server-side tools workflows may use, a subset of
             ALLOWED_WORKFLOW_TOOLS. None leaves the task's config default; a list
             (including []) overrides it, so [] forbids all tools.
-        skills: Skills to stage the design agent with, a subset of
-            `runstore.list_skills()` names — they name directories, so anything
-            outside that listing (including the harness-managed skills) is
-            rejected. None leaves the config default.
+        extra_skills: Skills to stage the design agent with IN ADDITION to the
+            config's own set, from `runstore.list_skills()` names. Additions
+            only, deliberately: the round prompt drives the agent through the
+            core skills by name, so a form that could drop one would produce
+            agents instructed to use a skill they don't have — every candidate
+            malformed, the whole round paid for and wasted. Removing core
+            skills is an expert move, and config is where experts go.
         working_skills: Whether the agent keeps a run-scoped skills directory it
             writes and re-reads across rounds. None leaves the config default.
 
@@ -157,9 +160,9 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
         bad = [x for x in tools if x not in ALLOWED_WORKFLOW_TOOLS]
         if bad:
             return {"ok": False, "error": f"unknown tool(s): {', '.join(bad)}"}
-    if skills is not None:
+    if extra_skills is not None:
         known = {s["name"] for s in runstore.list_skills()}
-        bad = [x for x in skills if x not in known]
+        bad = [x for x in extra_skills if x not in known]
         if bad:
             return {"ok": False, "error": f"unknown skill(s): {', '.join(bad)}"}
     freetext = bool(prompt and prompt.strip())
@@ -190,8 +193,9 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
 
     if tools is not None:
         cfg.runtime.tools = list(tools)
-    if skills is not None:
-        cfg.designer.skills = list(skills)
+    if extra_skills:
+        staged = list(cfg.designer.skills)
+        cfg.designer.skills = staged + [s for s in extra_skills if s not in staged]
     if working_skills is not None:
         cfg.designer.working_skills = bool(working_skills)
 
@@ -200,7 +204,7 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
         data_file = runstore.run_dir(status.run_id) / "dataset.jsonl"
         data_file.write_text("".join(json.dumps(e) + "\n" for e in examples))
         cfg.task.dataset = str(data_file)
-    if examples or tools is not None or skills is not None or working_skills is not None:
+    if examples or tools is not None or extra_skills or working_skills is not None:
         runstore.write_config(status.run_id, cfg)
     process = subprocess.Popen(
         [sys.executable, "-u", "-m", "workflow_optimizer.dashboard.runner", status.run_id],
@@ -559,13 +563,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._html(STATIC_INDEX.read_text(encoding="utf-8"))
             if path == "/api/tasks":
                 base = load_config()
+                # The config's own skills are marked required: the round prompt
+                # drives the agent through them by name, so the form offers
+                # additions only — dropping one is a config-level decision.
+                core = set(base.designer.skills)
+                skills = [{**s, "required": s["name"] in core}
+                          for s in runstore.list_skills()]
                 return self._json({"tasks": runstore.list_tasks(),
                                    "benchmarks": runstore.list_benchmarks(),
                                    "fields": sorted(FORM_FIELDS),
                                    "workflow_tools": ALLOWED_WORKFLOW_TOOLS,
                                    "default_tools": list(base.runtime.tools),
-                                   "skills": runstore.list_skills(),
-                                   "default_skills": list(base.designer.skills),
+                                   "skills": skills,
                                    "default_working_skills": bool(base.designer.working_skills)})
             if path == "/api/compare":
                 return self._json(compare_runs())
@@ -628,7 +637,7 @@ class Handler(BaseHTTPRequestHandler):
                                    prompt=body.get("prompt", ""),
                                    dataset_text=body.get("dataset", ""),
                                    tools=body.get("tools"),
-                                   skills=body.get("skills"),
+                                   extra_skills=body.get("extra_skills"),
                                    working_skills=body.get("working_skills"))
                 return self._json(result, code=200 if result.get("ok") else 400)
             if path.startswith("/api/run/") and path.endswith("/stop"):
