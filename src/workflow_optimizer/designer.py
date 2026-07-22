@@ -227,7 +227,9 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
 
     run_agent(agent_dir, log=log, on_cost=on_cost)
     if cfg.designer.working_skills and run_skills_dir is not None:
-        _collect_skills(agent_dir, run_skills_dir)
+        built = _collect_skills(agent_dir, run_skills_dir)
+        if built:
+            log(f"  working skills after round {round_num}: {', '.join(built)}")
     programs = _collect_programs(agent_dir)
     helpers = _read_helpers(agent_dir)                 # the run's operators, if any
     for program in programs:
@@ -296,7 +298,7 @@ def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path, run_skills_dir=Non
             working.mkdir()
 
 
-def _collect_skills(agent_dir: pathlib.Path, run_skills_dir) -> None:
+def _collect_skills(agent_dir: pathlib.Path, run_skills_dir) -> list[str]:
     """Persist the skills the agent wrote this round into the run's skills directory.
 
     The agent reads and writes `working_skills/` in its scratch directory, and that
@@ -306,15 +308,25 @@ def _collect_skills(agent_dir: pathlib.Path, run_skills_dir) -> None:
     Args:
         agent_dir: The directory the agent ran in.
         run_skills_dir: The run's persistent skills directory to copy into.
+
+    Returns:
+        What that directory now holds — one entry per SKILL.md note (its folder
+        name), plus "helpers.py" when the agent wrote operators — so the round
+        can say what the agent has built up rather than leaving it to be
+        discovered from the filesystem. Empty when the agent wrote nothing.
     """
     written = agent_dir / "working_skills"
     if not written.exists():
-        return
+        return []
     run_skills_dir = pathlib.Path(run_skills_dir)
     run_skills_dir.mkdir(parents=True, exist_ok=True)
     # Mirror everything back — SKILL.md notes and helpers.py alike — so the next
     # round reads and extends what this one wrote.
     shutil.copytree(written, run_skills_dir, dirs_exist_ok=True)
+    built = sorted(p.parent.name for p in run_skills_dir.glob("*/SKILL.md"))
+    if (run_skills_dir / "helpers.py").exists():
+        built.append("helpers.py")
+    return built
 
 
 def _round_prompt(cfg, benchmark, round_num: int, context: str,

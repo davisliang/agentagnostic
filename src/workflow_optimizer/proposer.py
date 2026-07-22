@@ -14,6 +14,36 @@ import sys
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage,
                               TextBlock, ToolUseBlock, query)
 
+# The input field worth echoing per tool call, tried in this order: a Bash call
+# is its command, a file tool is its path, a search is its query. Whatever hits
+# first is the one thing a reader wants on the line.
+_TOOL_DETAIL_KEYS = ("command", "file_path", "path", "query", "url", "pattern",
+                     "skill", "description", "prompt")
+
+
+def _tool_line(block) -> str:
+    """Render one tool call as a log line that says what the tool actually did.
+
+    `[tool] Bash: python eval_candidate.py c1.py` reads; `[tool] Bash` doesn't.
+
+    Args:
+        block: A ToolUseBlock — its `input` dict holds the call's arguments.
+
+    Returns:
+        The line, detail collapsed to one line and clipped. Just the name when
+        no input field matches.
+    """
+    detail = ""
+    tool_input = getattr(block, "input", None) or {}
+    for key in _TOOL_DETAIL_KEYS:
+        value = tool_input.get(key)
+        if isinstance(value, str) and value.strip():
+            detail = " ".join(value.split())
+            break
+    if len(detail) > 160:
+        detail = detail[:160] + "…"
+    return f"  [tool] {block.name}" + (f": {detail}" if detail else "")
+
 
 async def main() -> None:
     """Drive one agent session to completion, echoing its progress to stdout.
@@ -48,7 +78,7 @@ async def main() -> None:
                         text = text[:2000] + f" [… clipped {len(block.text) - 2000} chars]"
                     print(text, flush=True)
                 elif isinstance(block, ToolUseBlock):
-                    print(f"  [tool] {block.name}", flush=True)
+                    print(_tool_line(block), flush=True)
         elif isinstance(message, ResultMessage):
             # The design agent bills through the SDK, not through our meter, so
             # this is the only place its spend is observable. Printed in a fixed

@@ -400,12 +400,16 @@ def test_working_skills_are_staged_for_reading_and_collected_after(tmp_path):
     assert (agent_dir / "working_skills" / "prior" / "SKILL.md").exists()
     assert (agent_dir / ".claude" / "skills" / "workflow-skills" / "SKILL.md").exists()
 
-    # a skill the agent writes this round is persisted back for the next round
+    # a skill the agent writes this round is persisted back for the next round,
+    # and the round reports the full inventory rather than leaving it to be
+    # discovered from the filesystem
     learned = agent_dir / "working_skills" / "learned"
     learned.mkdir()
     (learned / "SKILL.md").write_text("---\nname: learned\n---\nstrip trailing whitespace")
-    _collect_skills(agent_dir, run_skills)
+    (agent_dir / "working_skills" / "helpers.py").write_text("def op():\n    pass\n")
+    built = _collect_skills(agent_dir, run_skills)
     assert (run_skills / "learned" / "SKILL.md").exists()
+    assert built == ["learned", "prior", "helpers.py"]     # notes sorted, operators last
 
 
 def test_the_meta_skill_in_the_skill_list_is_not_staged_twice(tmp_path):
@@ -429,6 +433,21 @@ def test_round_one_asks_for_diversity_and_later_rounds_extend_the_frontier(cfg):
     later = _round_prompt(cfg, benchmark, 2, summarize_archive(archive))
     assert "Pareto frontier" in later and "code-a" in later     # extend, not just cheapen
     assert "ON FRONTIER" in later                               # its one candidate is on it
+
+
+def test_tool_log_lines_say_what_the_tool_did():
+    # "[tool] Bash" tells a reader nothing; the command is the content
+    from workflow_optimizer.proposer import _tool_line
+
+    bash = SimpleNamespace(name="Bash",
+                           input={"command": "python eval_candidate.py c1.py\n",
+                                  "description": "eval"})
+    assert _tool_line(bash) == "  [tool] Bash: python eval_candidate.py c1.py"
+    read = SimpleNamespace(name="Read", input={"file_path": "task_spec.json"})
+    assert _tool_line(read) == "  [tool] Read: task_spec.json"
+    assert _tool_line(SimpleNamespace(name="X", input={})) == "  [tool] X"
+    long = SimpleNamespace(name="Bash", input={"command": "x" * 500})
+    assert len(_tool_line(long)) < 200 and _tool_line(long).endswith("…")
 
 
 def test_research_notes_are_handed_to_the_design_agent(cfg):
