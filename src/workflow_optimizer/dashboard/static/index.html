@@ -169,6 +169,7 @@ let compareTask = "", comparePoints = [];
 let answersSplit = "", answersData = null;   // side-by-side answers, "" = closed
 let frontierPoints = [], hoveringChart = false;   // hovering pauses the refresh
 let chartSplit = "test";   // which split the run-detail chart shows
+let hiddenRounds = new Set();   // design rounds toggled off in the run-detail chart
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const usd = n => n == null ? "—" : "$" + Number(n).toFixed(5);
@@ -560,7 +561,7 @@ async function stopRun() {
   await tick();
 }
 
-function select(id) { activeId = id; selectedCandidate = null; setView("runs"); }
+function select(id) { activeId = id; selectedCandidate = null; hiddenRounds = new Set(); setView("runs"); }
 
 // ---- detail -----------------------------------------------------------------
 async function loadDetail() {
@@ -632,8 +633,13 @@ async function loadDetail() {
   const testPts = cands.filter(c => c.test);
   let split = chartSplit;
   if (split === "test" && !testPts.length) split = "dev";     // nothing on test to show
-  const pts = split === "test" ? testPts : devPts;
-  if (pts.length) {
+  const basePts = split === "test" ? testPts : devPts;
+  if (basePts.length) {
+    // Round chips: toggle which design round's candidates are plotted. Round 0
+    // is a continued run's carried archive; the frontier line is recomputed
+    // over the visible points, so "what did round 2 alone add" is answerable.
+    const rounds = [...new Set(basePts.map(c => c.round ?? -1))].sort((a, b) => a - b);
+    const pts = basePts.filter(c => !hiddenRounds.has(c.round ?? -1));
     const tab = (s, label, on) =>
       `<span class="tab ${split === s ? "on" : ""}" style="float:right;text-transform:none;
          margin-left:6px${on ? "" : ";opacity:.4;pointer-events:none"}"
@@ -644,10 +650,17 @@ async function loadDetail() {
       : `<div class="desc">Every candidate, scored on dev — the split the search tuned
          against, so read as optimistic.${testPts.length
            ? " Switch to <b>test</b> for held-out numbers on the frontier." : ""}</div>`;
+    const roundChips = rounds.length > 1 ? `<div class="tabs" style="margin:2px 0 8px">` +
+      rounds.map(r => `<span class="tab ${hiddenRounds.has(r) ? "" : "on"}"
+        onclick="toggleRound(${r})">${r === 0 ? "carried" : r === -1 ? "round ?" : "round " + r}</span>`)
+        .join("") + `</div>` : "";
     parts.push(`<h2>accuracy vs cost`
       + tab("dev", `dev · all ${devPts.length}`, true)
       + tab("test", "test", testPts.length > 0)
-      + `</h2>` + caption + frontierSvg(pts, split));
+      + `</h2>` + caption + roundChips
+      + (pts.length ? frontierSvg(pts, split)
+                    : `<div class="empty">every round is toggled off — click a round
+                       chip to bring its points back</div>`));
   }
 
   if (cands.length) {
@@ -766,6 +779,10 @@ function revealSelected() {
 }
 
 function setChartSplit(s) { chartSplit = s; loadDetail(); }
+function toggleRound(r) {
+  if (hiddenRounds.has(r)) hiddenRounds.delete(r); else hiddenRounds.add(r);
+  loadDetail();
+}
 
 function stat(lbl, val) {
   return `<div class="card"><div class="lbl">${lbl}</div><div class="stat">${val}</div></div>`;
@@ -1014,6 +1031,8 @@ function wireFrontierHover() {
       const s = c._split, other = s === "test" ? c.dev : c.test;
       hoveringChart = true;
       tip.innerHTML = `<b style="color:#dde3ef">${esc(c.name)}</b>
+        ${c.round != null ? `<div style="color:#7c8699">${c.round === 0
+          ? "carried from the source run" : "designed in round " + c.round}</div>` : ""}
         <div>accuracy <b>${acc(c[s].accuracy)}</b> · ${usd(c[s].cost_per_query)}/query
           <span style="color:#7c8699">(${esc(s)})</span></div>
         ${other ? `<div style="color:#7c8699">${esc(s === "test" ? "dev" : "test")}:
