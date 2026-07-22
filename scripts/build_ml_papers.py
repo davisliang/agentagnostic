@@ -168,20 +168,26 @@ def fetch_cited_papers(window: str, min_citations: int, log=print) -> list[dict]
     return papers
 
 
-def fetch_arxiv_details(papers: list[dict], log=print) -> list[dict]:
+def fetch_arxiv_details(papers: list[dict], since: str = MODEL_CUTOFF,
+                        log=print) -> list[dict]:
     """Look the papers up on arXiv for title, abstract, and categories.
 
-    This is also the authoritative ML filter: a paper whose categories don't
+    This is also the authoritative ML filter — a paper whose categories don't
     intersect ML_CATEGORIES (power electronics can clear a citation bar too) is
-    dropped here.
+    dropped here — AND the authoritative cutoff filter: Semantic Scholar can
+    date a paper by its venue publication even when its arXiv preprint is
+    older, so the post-cutoff guarantee is enforced against arXiv's
+    `published` field, which is the FIRST version's date even for papers
+    revised since.
 
     Args:
         papers: `fetch_cited_papers` output.
+        since: Drop papers whose v1 submission predates this date.
         log: Where progress lines go.
 
     Returns:
         Dicts with arxiv_id, citations, title, abstract, primary_category,
-        published, url — ML papers only.
+        published, url — ML papers first submitted after the cutoff only.
     """
     by_id = {p["arxiv_id"]: p for p in papers}
     detailed = []
@@ -199,6 +205,8 @@ def fetch_arxiv_details(papers: list[dict], log=print) -> list[dict]:
             primary = primary.get("term") if primary is not None else ""
             if not (categories & ML_CATEGORIES):
                 continue                       # cited, recent — but not ML
+            if entry.findtext("atom:published", "", ATOM)[:10] < since:
+                continue                       # v1 predates the cutoff — memorizable
             detailed.append({
                 "arxiv_id": arxiv_id,
                 "citations": by_id[arxiv_id]["citations"],
@@ -437,7 +445,7 @@ def main() -> None:
     window = f"{args.since}:{datetime.date.today().isoformat()}"
     print(f"papers submitted {window} with >{args.min_citations} citations...")
     cited = fetch_cited_papers(window, args.min_citations)
-    papers = interleave_by_category(fetch_arxiv_details(cited))
+    papers = interleave_by_category(fetch_arxiv_details(cited, since=args.since))
     spread = {}
     for paper in papers:
         spread[paper["primary_category"]] = spread.get(paper["primary_category"], 0) + 1
