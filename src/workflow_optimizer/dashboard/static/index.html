@@ -12,8 +12,9 @@
   header .meta { color:#8b95a7; font-size:12px; }
   header .spacer { margin-left:auto; }
   label.toggle { color:#8b95a7; font-size:12px; cursor:pointer; }
-  main { display:grid; grid-template-columns: 320px 1fr; height: calc(100vh - 41px); }
-  #runs { border-right:1px solid #2a313c; padding:10px; overflow-y:auto; }
+  main { display:grid; grid-template-columns: auto 1fr; height: calc(100vh - 41px); }
+  #runs { border-right:1px solid #2a313c; padding:10px; overflow-y:auto;
+          width:320px; min-width:220px; max-width:600px; resize:horizontal; }
   #detail { padding:14px 22px; overflow-y:auto; }
   .empty { color:#5b667a; font-style:italic; padding:8px 2px; }
 
@@ -753,6 +754,8 @@ async function loadDetail() {
   const contRounds = (document.getElementById("cont-rounds") || {}).value;
   const contGuidance = (document.getElementById("cont-guidance") || {}).value;
   const contError = (document.getElementById("cont-err") || {}).textContent;
+  // Heights the reader dragged panes to, so a refresh doesn't snap them back.
+  const preHeights = [...pane.querySelectorAll("pre")].map(p => p.style.height);
 
   pane.innerHTML = parts.join("");
   pane.querySelectorAll("details").forEach((x, i) => { if (wasOpen[i]) x.open = true; });
@@ -764,7 +767,22 @@ async function loadDetail() {
   pane.scrollTop = paneAt;
   const log = document.getElementById("log");
   if (log) log.scrollTop = wasPinned ? log.scrollHeight : wasAt;
+  makeResizable(pane, preHeights);
   wireFrontierHover();
+}
+
+// Give overflowing panes a drag-to-resize corner. CSS alone can't: `resize`
+// respects max-height, so a capped box could only shrink. A pane that
+// overflows its cap trades max-height for an explicit height, which the
+// handle then controls; `saved` re-applies heights across the 3s re-render.
+function makeResizable(container, saved = []) {
+  [...container.querySelectorAll("pre")].forEach((pre, i) => {
+    if (saved[i]) {
+      pre.style.maxHeight = "none"; pre.style.height = saved[i]; pre.style.resize = "vertical";
+    } else if (pre.scrollHeight > pre.clientHeight + 10) {
+      pre.style.maxHeight = "none"; pre.style.height = "340px"; pre.style.resize = "vertical";
+    }
+  });
 }
 
 // Selecting a candidate should take you to it, not leave you hunting for it.
@@ -808,7 +826,7 @@ async function loadTrace() {
   const data = await (await fetch(url)).json();
   traceCache = data.error ? {error: data.error} : data;
   const box = document.getElementById("trace");
-  if (box) box.innerHTML = traceHtml();
+  if (box) { box.innerHTML = traceHtml(); makeResizable(box); }
 }
 
 function traceHtml() {
@@ -870,7 +888,7 @@ async function refreshAnswers() {
   data._split = answersSplit;
   answersData = data;
   const target = document.getElementById("answers");
-  if (target && answersSplit) target.innerHTML = answersHtml();
+  if (target && answersSplit) { target.innerHTML = answersHtml(); makeResizable(target); }
 }
 
 function answersHtml() {
