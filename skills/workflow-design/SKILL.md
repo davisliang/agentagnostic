@@ -42,9 +42,17 @@ def solve(question, call_model):
       other fails the query. The web tools bundle their own code execution, so
       `"code_execution"` cannot be combined with either web tool in one call
       (any one of them alone is fine).
-    - `effort="low"|"medium"|"high"|"xhigh"|"max"` — turn on the model's own
-      step-by-step thinking at that depth (Sonnet 5 / Opus 4.8 only; ignored on the
-      cheap model). Costs more tokens; the per-query budget still applies.
+    - `effort="low"|"medium"|"high"|"xhigh"|"max"` — sets how deeply the model
+      thinks WHEN it decides to think (Sonnet 5 / Opus 4.8 only; ignored on the
+      cheap model). The deciding is adaptive: on a short prompt whose output is
+      schema-constrained, the model often skips thinking entirely, and then
+      `effort="high"` behaves exactly like no effort at all — same answer, same
+      cost. Check `reply.usage["output"]`: if a high-effort call's output tokens
+      match a plain call's, no thinking happened. To make reasoning actually
+      engage, say so in the prompt ("this requires multi-step reasoning — think
+      carefully before answering"), or reason in a schema-free call first and
+      format the answer in a second one. Thinking bills as output tokens; the
+      per-query budget still applies.
     - `schema=<JSON Schema>` — constrain the reply to JSON matching it, and read the
       parsed object off `reply.data`. This is the most reliable way to get a clean
       answer out of a model, and it composes with `tools=` (the schema shapes only
