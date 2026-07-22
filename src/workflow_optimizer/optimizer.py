@@ -73,9 +73,55 @@ class Search:
         return pareto_front(self.finalists, on=TEST)
 
 
+def rebuild_search(result: dict, trace_for=None) -> Search:
+    """Rebuild a Search's archive from a saved result, to continue a run.
+
+    The archive is what later rounds design against, so a continued search
+    starts from everything the source run already paid to learn — including,
+    when traces are available, the per-example dev failures that tell a new
+    design where the old ones break.
+
+    Args:
+        result: A parsed `result.json` (report.save's output).
+        trace_for: Optional `trace_for(name)` returning the candidate's saved
+            dev trace dict (`runstore.read_trace` shape), or None. Its records
+            feed the archive summary's failure digest; without it the carried
+            candidates still count, they just can't show WHERE they lost points.
+
+    Returns:
+        A Search whose archive holds every saved candidate that has code, all
+        dev-scored; test scores are carried where the source ranked them.
+        Finalists are left empty — the continued run re-derives its frontier.
+    """
+    search = Search()
+    for saved in result.get("candidates", []):
+        if not saved.get("code"):
+            continue          # recovered-from-events entries can't be re-run or deduped
+        candidate = Candidate(name=saved["name"], description=saved.get("description", ""),
+                              code=saved["code"], helpers=saved.get("helpers", ""))
+        dev = saved.get("dev") or {}
+        trace = trace_for(saved["name"]) if trace_for else None
+        records = [{"question": r["question"]["text"], "gold": r["gold"]["text"],
+                    "answer": r["answer"]["text"], "score": r["score"],
+                    "cost": r.get("cost", 0.0), "error": r.get("error"), "calls": []}
+                   for r in (trace or {}).get("records", [])]
+        candidate.dev = SplitScore(name=candidate.name,
+                                   accuracy=dev.get("accuracy", 0.0),
+                                   cost=dev.get("cost_per_query", 0.0),
+                                   cached_input_frac=dev.get("cached_input_frac", 0.0),
+                                   records=records)
+        test = saved.get("test")
+        if test:
+            candidate.test = SplitScore(name=candidate.name, accuracy=test["accuracy"],
+                                        cost=test["cost_per_query"])
+        search.archive.append(candidate)
+    return search
+
+
 def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
              on_event=None, on_scored=None, on_research=None, skills_dir=None,
-             search: "Search" = None) -> Search:
+             search: "Search" = None, research_notes: str = "",
+             guidance: str = "") -> Search:
     """Research the task, design candidates, score them on dev, rank on test.
 
     Args:
@@ -104,6 +150,14 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
             reference to the archive as it grows, so a run that is stopped or
             crashes half way can still report what it had already scored — a
             long search represents real money and losing it is not acceptable.
+            A search whose archive is already populated (a continued run) is
+            treated as prior rounds: round 1 sees it in the archive summary.
+        research_notes: Already-written research notes to hand every round.
+            Non-empty skips the research phase — a continued run reuses the
+            source run's notes instead of paying for the phase again.
+        guidance: Operator guidance for the design rounds — free text from the
+            human who reviewed earlier results, telling the next designs where
+            to focus. "" adds nothing.
 
     Returns:
         A Search. `finalists` is empty when no candidate survived.
@@ -120,8 +174,9 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
             tempfile.mkdtemp(prefix="workflow_run_skills_"))
         run_skills_dir.mkdir(parents=True, exist_ok=True)
 
-    research_notes = ""
-    if cfg.designer.research:
+    if research_notes:
+        log(f"reusing research notes ({len(research_notes)} chars)")
+    elif cfg.designer.research:
         log("\n===== research =====")
         emit({"event": "researching"})
         research_notes = research.run_research(
@@ -142,7 +197,8 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
         for program in designer.run_design_round(cfg, benchmark, round_num, context,
                                                  log=log, on_cost=report_cost,
                                                  research_notes=research_notes,
-                                                 run_skills_dir=run_skills_dir):
+                                                 run_skills_dir=run_skills_dir,
+                                                 guidance=guidance):
             # Skip exact repeats. A candidate's behavior is its code AND the
             # operators it may call, so the same code resubmitted after
             # helpers.py changed is a new candidate, not a repeat.
@@ -173,8 +229,11 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
     frontier = pareto_front(search.archive, on=DEV)
     emit({"event": "ranking", "n_finalists": len(frontier)})
     for candidate in frontier:
-        candidate.test = evaluator.run(candidate.program, benchmark.test)
-        scored(candidate, "test", candidate.test)
+        if candidate.test is None:
+            candidate.test = evaluator.run(candidate.program, benchmark.test)
+            scored(candidate, "test", candidate.test)
+        # else: carried from the source run — the same held-out split was
+        # already paid for, and re-scoring would only add sampling noise.
         search.finalists.append(candidate)
         log(f"  {candidate.name:24s} test acc {candidate.test.accuracy:.2f}  "
             f"${candidate.test.cost:.5f}/query")

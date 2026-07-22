@@ -465,6 +465,87 @@ def test_tool_log_lines_say_what_the_tool_did():
     assert len(_tool_line(long)) < 330 and _tool_line(long).endswith("…")
 
 
+# ---- continuing a finished search -------------------------------------------
+def test_a_benchmark_round_trips_through_its_saved_form(cfg, catalog):
+    # a continued run must score the SAME splits — generated data can't be
+    # regenerated identically, so the benchmark is saved whole and rebuilt
+    saved = json.loads(json.dumps(analysis.benchmark_to_dict(benchmark_fixture())))
+    rebuilt = analysis.benchmark_from_dict(cfg, FakeClient(catalog), saved)
+    assert rebuilt.dev == DATA and rebuilt.test == DATA
+    assert rebuilt.grader.kind == "numeric"
+    assert rebuilt.description == "Add two numbers."
+
+
+def test_a_saved_judge_rubric_survives_without_recalibration(cfg, catalog):
+    judged = Benchmark(
+        analysis=TaskAnalysis(description="Summarize.", check_type="llm_judge",
+                              judge_rubric="unused-precalibration", answer_examples=[]),
+        grader=Grader(kind="llm_judge", client=None, task="Summarize.",
+                      rubric="the POST-calibration rubric"),
+        dev=DATA, test=DATA, judge_status="ok")
+    rebuilt = analysis.benchmark_from_dict(
+        cfg, FakeClient(catalog), analysis.benchmark_to_dict(judged))
+    assert rebuilt.grader.kind == "llm_judge"
+    assert rebuilt.grader.rubric == "the POST-calibration rubric"   # not re-inferred
+    assert rebuilt.judge_status == "ok"
+
+
+def test_rebuild_search_restores_the_archive_and_its_failures():
+    from workflow_optimizer.optimizer import rebuild_search
+
+    result = {"candidates": [
+        {"name": "H", "description": "one call", "code": "code-h",
+         "dev": {"accuracy": 0.5, "cost_per_query": 0.001, "cached_input_frac": 0.2},
+         "test": {"accuracy": 0.6, "cost_per_query": 0.0011}},
+        {"name": "ghost", "description": "(recovered)", "code": ""},   # no code -> dropped
+    ]}
+    trace = {"records": [
+        {"question": {"text": "3*5?"}, "gold": {"text": "15"},
+         "answer": {"text": "15 apples"}, "score": 0.0, "cost": 0.001,
+         "error": None, "calls": []}]}
+    search = rebuild_search(result, trace_for=lambda name: trace)
+
+    assert [c.name for c in search.archive] == ["H"]
+    carried = search.archive[0]
+    assert carried.dev.accuracy == 0.5 and carried.dev.cached_input_frac == 0.2
+    assert carried.test.accuracy == 0.6              # kept, so ranking won't re-buy it
+    # the per-example failures feed the next round's archive summary
+    assert "15 apples" in summarize_archive(search.archive)
+
+
+def test_ranking_keeps_carried_test_scores_instead_of_rebuying_them(catalog):
+    from workflow_optimizer.optimizer import Search, optimize
+
+    cfg = load_config("gsm8k", ["designer.rounds=0", "designer.research=false"])
+    carried = Candidate("A", "", GOOD["code"], dev=SplitScore("A", 0.9, 0.001),
+                        test=SplitScore("A", 0.77, 0.001))
+    fresh = Candidate("B", "", GOOD["code"] + "#", dev=SplitScore("B", 0.95, 0.010))
+    search = Search(archive=[carried, fresh])
+
+    out = optimize(cfg, benchmark_fixture(), evaluator(cfg, catalog),
+                   log=lambda *a: None, search=search)
+    by_name = {c.name: c for c in out.finalists}
+    assert by_name["A"].test.accuracy == 0.77        # the paid-for score, untouched
+    assert by_name["B"].test.accuracy == 1.0         # freshly evaluated
+
+
+def test_operator_guidance_reaches_the_round_prompt(cfg):
+    benchmark = benchmark_fixture()
+    nudge = "STOP EXPLORING VOTING VARIANTS; DECOMPOSE THE MULTI-PART QUESTIONS"
+    with_nudge = _round_prompt(cfg, benchmark, 1, "", guidance=nudge)
+    assert nudge in with_nudge and "OPERATOR GUIDANCE" in with_nudge
+    assert "OPERATOR GUIDANCE" not in _round_prompt(cfg, benchmark, 1, "")
+
+
+def test_a_continued_round_one_extends_the_frontier_it_inherited(cfg):
+    # round 1 WITH an archive must get the improve goal, not "design a diverse set"
+    benchmark = benchmark_fixture()
+    archive = [Candidate("H", "", "carried-code", dev=SplitScore("H", 0.8, 0.001))]
+    prompt = _round_prompt(cfg, benchmark, 1, summarize_archive(archive))
+    assert "carried-code" in prompt and "Pareto frontier" in prompt
+    assert "DIVERSE" not in prompt
+
+
 def test_research_notes_are_handed_to_the_design_agent(cfg):
     benchmark = benchmark_fixture()
     marker = "SELF-CONSISTENCY OF 3 IS THE KNOWN WIN HERE"

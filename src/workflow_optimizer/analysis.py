@@ -112,6 +112,57 @@ def build_benchmark(cfg, client, log=print) -> Benchmark:
     return benchmark
 
 
+def benchmark_to_dict(benchmark: Benchmark) -> dict:
+    """Render a Benchmark as plain data, so a later run can reuse it exactly.
+
+    A continued search must score against the SAME dev/test splits or its
+    numbers aren't comparable — and a generated dataset cannot be regenerated
+    identically. Saving the benchmark whole (analysis, splits, and how the
+    grader was set up) is what makes continuation sound.
+
+    Args:
+        benchmark: The benchmark to save.
+
+    Returns:
+        A JSON-serializable dict `benchmark_from_dict` can rebuild from.
+    """
+    return {"analysis": benchmark.analysis.model_dump(),
+            "dev": benchmark.dev, "test": benchmark.test,
+            "judge_status": benchmark.judge_status,
+            "grader": {"kind": benchmark.grader.kind,
+                       "task": benchmark.grader.task,
+                       "rubric": benchmark.grader.rubric}}
+
+
+def benchmark_from_dict(cfg, client, saved: dict) -> Benchmark:
+    """Rebuild a saved Benchmark without any API call.
+
+    The saved rubric is the post-calibration one, so nothing is re-inferred or
+    re-calibrated — the grader means exactly what it meant in the source run.
+
+    Args:
+        cfg: The run config, for the judge model and a custom grader's path.
+        client: ModelClient a judge grader will call through.
+        saved: `benchmark_to_dict` output.
+
+    Returns:
+        The rebuilt Benchmark.
+    """
+    analysis = TaskAnalysis(**saved["analysis"])
+    grader_info = saved.get("grader") or {}
+    if cfg.task.grader:
+        grader = Grader.from_grader(cfg.task.grader)
+    elif grader_info.get("kind") == "llm_judge":
+        grader = Grader(kind="llm_judge", client=client, judge_model=cfg.judge.model,
+                        task=grader_info.get("task", analysis.description),
+                        rubric=grader_info.get("rubric", ""))
+    else:
+        grader = Grader(kind=grader_info.get("kind", analysis.check_type))
+    return Benchmark(analysis=analysis, grader=grader,
+                     dev=list(saved["dev"]), test=list(saved["test"]),
+                     judge_status=saved.get("judge_status", ""))
+
+
 def check_grader(grader: Grader, example: dict) -> None:
     """Prove the grader can actually grade this data, before a search starts.
 

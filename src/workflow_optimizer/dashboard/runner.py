@@ -8,6 +8,7 @@ from disk rather than from server memory.
 
     python -m workflow_optimizer.dashboard.runner <run_id>
 """
+import json
 import signal
 import sys
 import time
@@ -15,7 +16,7 @@ import traceback
 
 from .. import analysis, report, runstore
 from ..config import load_resolved
-from ..optimizer import Search, optimize
+from ..optimizer import Search, optimize, rebuild_search
 from ..session import Session
 
 
@@ -61,9 +62,34 @@ def main(run_id: str) -> int:
         cfg = load_resolved(directory / "config.yaml")
         session = Session.from_config(cfg)
 
-        runstore.update_status(run_id, phase="analyzing")
-        runstore.append_event(run_id, {"event": "analyzing"})
-        benchmark = analysis.build_benchmark(cfg, session.client, log=log)
+        continue_file = directory / "continue.json"
+        resumed = json.loads(continue_file.read_text()) if continue_file.exists() else None
+
+        if resumed:
+            # A continuation: the benchmark and archive come from the source run's
+            # saved files (copied here by the server), so the same splits are
+            # scored and nothing already paid for is re-inferred or re-designed.
+            benchmark = analysis.benchmark_from_dict(
+                cfg, session.client, json.loads((directory / "benchmark.json").read_text()))
+            search = rebuild_search(
+                json.loads((directory / "source_result.json").read_text()),
+                trace_for=lambda name: runstore.read_trace(run_id, name, "dev"))
+            log(f"continuing from {resumed['source']}: "
+                f"{len(search.archive)} carried candidate(s), "
+                f"{int(cfg.designer.rounds)} more round(s)")
+            runstore.append_event(run_id, {"event": "continued_from",
+                                           "source": resumed["source"],
+                                           "guidance": resumed.get("guidance", "")})
+        else:
+            runstore.update_status(run_id, phase="analyzing")
+            runstore.append_event(run_id, {"event": "analyzing"})
+            benchmark = analysis.build_benchmark(cfg, session.client, log=log)
+            search = Search()
+            # Saved whole so a later run can continue against the SAME splits —
+            # a generated dataset cannot be regenerated identically.
+            (directory / "benchmark.json").write_text(
+                json.dumps(analysis.benchmark_to_dict(benchmark)))
+
         runstore.update_status(run_id, n_dev=len(benchmark.dev), n_test=len(benchmark.test))
         runstore.append_event(run_id, {
             "event": "analyzed", "check": benchmark.grader.kind,
@@ -72,6 +98,12 @@ def main(run_id: str) -> int:
             "answer_examples": list(benchmark.analysis.answer_examples),
             "dev_sample": benchmark.dev[:3], "test_sample": benchmark.test[:3],
             "n_dev": len(benchmark.dev), "n_test": len(benchmark.test)})
+        # Carried candidates appear in the UI from the start, marked round 0.
+        for candidate in search.archive:
+            emit({"event": "candidate", "round": 0, "name": candidate.name,
+                  "description": candidate.description,
+                  "dev_accuracy": candidate.dev.accuracy, "dev_cost": candidate.dev.cost,
+                  "cached_input_frac": candidate.dev.cached_input_frac, "errors": []})
 
         def keep_trace(candidate, split, score) -> None:
             """Persist every model call the candidate made, for the verbose view."""
@@ -82,13 +114,16 @@ def main(run_id: str) -> int:
             runstore.write_research(run_id, notes)
 
         # The caller owns the Search, so the archive survives an interrupt.
-        search = Search()
         _save_on_exit(run_id, cfg, search, log)
         optimize(cfg, benchmark, session.evaluator(benchmark.grader),
                  log=log, on_event=emit, on_scored=keep_trace,
                  on_research=keep_research,
                  skills_dir=directory / "skills",   # keep the run's working skills for inspection
-                 search=search)
+                 search=search,
+                 # A continuation reuses the source's notes (copied into this run)
+                 # instead of paying for the research phase again.
+                 research_notes=runstore.read_research(run_id) if resumed else "",
+                 guidance=(resumed or {}).get("guidance", ""))
 
         report.summarize(search, cfg, log=log)
         _write_result(run_id, cfg, search)

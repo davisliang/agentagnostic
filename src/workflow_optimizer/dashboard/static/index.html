@@ -525,6 +525,27 @@ async function startRun(ev) {
   return false;
 }
 
+// The server runs on this machine, so it can hand the run's folder to Finder.
+async function openRunDir() {
+  if (!activeId) return;
+  await fetch(`/api/run/${encodeURIComponent(activeId)}/open`, {method: "POST"});
+}
+
+async function continueRun() {
+  const rounds = document.getElementById("cont-rounds").value;
+  const guidance = document.getElementById("cont-guidance").value;
+  const res = await (await fetch(`/api/run/${encodeURIComponent(activeId)}/continue`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({rounds, guidance}),
+  })).json();
+  if (!res.ok) {
+    document.getElementById("cont-err").textContent = res.error || "could not continue";
+    return;
+  }
+  activeId = res.run_id; selectedCandidate = null;
+  tick();
+}
+
 async function stopRun() {
   if (!activeId) return;
   await fetch(`/api/run/${encodeURIComponent(activeId)}/stop`, {method: "POST"});
@@ -546,11 +567,20 @@ async function loadDetail() {
 
   const parts = [];
   parts.push(`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <h2 style="margin:0;text-transform:none;font-family:ui-monospace,Menlo,monospace">${esc(s.run_id)}</h2>
+      <h2 style="margin:0;text-transform:none;font-family:ui-monospace,Menlo,monospace;cursor:pointer"
+          title="open runs/${esc(s.run_id)}/ in the file browser" onclick="openRunDir()"
+          >${esc(s.run_id)} <span style="font-size:12px;opacity:.75">📁</span></h2>
       <span class="pill ${esc(s.state)}">${esc(s.state === "running" ? s.phase : s.state)}</span>
       ${s.state === "running" ? `<button class="danger" onclick="stopRun()">stop</button>` : ""}
     </div>`);
   if (s.error) parts.push(`<div class="err">${esc(s.error)}</div>`);
+
+  const contEv = (d.events || []).find(e => e.event === "continued_from");
+  if (contEv) parts.push(`<div class="desc">continued from
+    <span style="color:#7dd3fc;cursor:pointer;font-family:ui-monospace,Menlo,monospace"
+      onclick="select('${esc(contEv.source)}')">${esc(contEv.source)}</span>${
+    contEv.guidance ? ` — nudge: “${esc(contEv.guidance.slice(0, 200))}${
+      contEv.guidance.length > 200 ? "…" : ""}”` : ""}</div>`);
 
   parts.push(`<div class="phases">` + PHASES.map(p => {
     const at = PHASES.indexOf(s.phase), i = PHASES.indexOf(p);
@@ -656,6 +686,23 @@ async function loadDetail() {
           same questions, most-disagreed first</div>`}</div>`);
     if (answersSplit && (!answersData || answersData._split !== answersSplit)) refreshAnswers();
   }
+  if (s.state !== "running") {
+    parts.push(`<h2>continue this search</h2><div class="card">
+      <div class="desc">Adds design rounds on top of everything above — the archive,
+        research notes, working skills and the exact dev/test splits carry over, so new
+        numbers stay comparable and carried test scores aren't paid for twice.</div>
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div><div class="io-lbl">more rounds</div>
+          <input id="cont-rounds" type="number" min="1" max="10" value="2" style="width:80px"></div>
+        <div style="flex:1;min-width:280px"><div class="io-lbl">nudge (optional)</div>
+          <textarea id="cont-guidance" rows="3"
+            placeholder="Where should the next rounds focus? e.g. the cheap workflows lose points on multi-part questions — try decomposition; stop exploring voting variants."
+            style="width:100%;background:#0a0e14;color:#cfd6e4;border:1px solid #2a313c;border-radius:4px;padding:6px;font:inherit;font-size:12px"></textarea></div>
+      </div>
+      <div style="margin-top:8px"><button class="primary" onclick="continueRun()">continue search</button>
+        <span class="err" id="cont-err"></span></div>
+    </div>`);
+  }
   parts.push(`<h2>task input &amp; grading</h2>` + analysisHtml(d.analysis));
   parts.push(`<h2>config</h2><details><summary>the resolved config this run used</summary>
     <div class="inner"><pre>${esc(d.config || "(none)")}</pre></div></details>`);
@@ -675,9 +722,19 @@ async function loadDetail() {
   const paneAt = pane.scrollTop;
   // Which disclosures were open, so a refresh doesn't collapse what you opened.
   const wasOpen = [...pane.querySelectorAll("details")].map(x => x.open);
+  // What was typed into the continue form — a refresh must eat neither the
+  // nudge nor the error explaining why the last attempt was refused.
+  const contRounds = (document.getElementById("cont-rounds") || {}).value;
+  const contGuidance = (document.getElementById("cont-guidance") || {}).value;
+  const contError = (document.getElementById("cont-err") || {}).textContent;
 
   pane.innerHTML = parts.join("");
   pane.querySelectorAll("details").forEach((x, i) => { if (wasOpen[i]) x.open = true; });
+  const contR = document.getElementById("cont-rounds"), contG = document.getElementById("cont-guidance");
+  const contE = document.getElementById("cont-err");
+  if (contR && contRounds !== undefined) contR.value = contRounds;
+  if (contG && contGuidance !== undefined) contG.value = contGuidance;
+  if (contE && contError) contE.textContent = contError;
   pane.scrollTop = paneAt;
   const log = document.getElementById("log");
   if (log) log.scrollTop = wasPinned ? log.scrollHeight : wasAt;
@@ -846,6 +903,8 @@ function timelineHtml(events) {
       : e.event === "researched" ? `research notes written (${e.chars} chars)`
       : e.event === "round_start" ? `round ${e.round} of ${e.rounds}`
       : e.event === "ranking" ? `${e.n_finalists} finalist(s) on the dev frontier`
+      : e.event === "continued_from" ? `from ${e.source}`
+        + (e.guidance ? ` — nudge: ${e.guidance.slice(0, 100)}` : "")
       : e.error || "";
     return `<tr><td style="width:60px;color:#5b667a;font-family:ui-monospace,Menlo,monospace">
         +${Math.round(e.t - t0)}s</td>

@@ -15,6 +15,7 @@ that can reach this port can spend it.
 import argparse
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -27,7 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .. import analysis, costs, paths, runstore
 from ..client import TOOL_DEFS
-from ..config import load_config
+from ..config import load_config, load_resolved
 from ..paths import ROOT
 from ..session import Session
 
@@ -206,14 +207,108 @@ def start_run(task: str, overrides: dict, prompt: str = "", dataset_text: str = 
         cfg.task.dataset = str(data_file)
     if examples or tools is not None or extra_skills or working_skills is not None:
         runstore.write_config(status.run_id, cfg)
+    _spawn_runner(status.run_id)
+    return {"ok": True, "run_id": status.run_id}
+
+
+def _spawn_runner(run_id: str) -> None:
+    """Launch the pipeline subprocess against an already-created run directory.
+
+    Args:
+        run_id: The run to execute.
+    """
     process = subprocess.Popen(
-        [sys.executable, "-u", "-m", "workflow_optimizer.dashboard.runner", status.run_id],
+        [sys.executable, "-u", "-m", "workflow_optimizer.dashboard.runner", run_id],
         cwd=ROOT,
         env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
         stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
         start_new_session=True,       # its own process group, so Stop takes the agent too
     )
-    runstore.update_status(status.run_id, pid=process.pid)
+    runstore.update_status(run_id, pid=process.pid)
+
+
+def open_run_dir(run_id: str) -> dict:
+    """Open one run's directory in the OS file browser.
+
+    The server runs on the user's own machine, so "show me the run's files" can
+    actually mean Finder / Explorer. Only a validated run id resolves — the
+    endpoint takes no path of its own, so nothing outside `runs/` can be named.
+
+    Args:
+        run_id: The run whose directory to open.
+
+    Returns:
+        `{"ok": True, "path": ...}`, or `{"ok": False, "error": ...}`.
+    """
+    status = runstore.read_status(run_id)
+    if status is None:
+        return {"ok": False, "error": "unknown run"}
+    directory = runstore.run_dir(run_id)
+    opener = {"darwin": ["open"], "win32": ["explorer"]}.get(sys.platform, ["xdg-open"])
+    try:
+        subprocess.Popen(opener + [str(directory)],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as error:
+        return {"ok": False, "error": f"could not open the folder: {error}"}
+    return {"ok": True, "path": str(directory)}
+
+
+def continue_run(run_id: str, rounds, guidance: str = "") -> dict:
+    """Resume a finished search: more design rounds on top of everything it learned.
+
+    A fresh run directory is seeded from the source run — its resolved config
+    (rounds overridden), its saved benchmark (the SAME dev/test splits, so
+    scores stay comparable), its result (the archive the new rounds design
+    against), its traces (the per-example failures that say where the old
+    designs break), its research notes, and its working skills. The optional
+    guidance is the operator's nudge, handed to every design round.
+
+    Args:
+        run_id: The run to continue.
+        rounds: How many more design rounds to run, 1-10.
+        guidance: Free text telling the next rounds where to focus. Optional.
+
+    Returns:
+        `{"ok": True, "run_id": <the new run>}`, or `{"ok": False, "error": ...}`.
+        Runs from before continuation support lack a saved benchmark and are
+        refused — their dataset cannot be reconstructed exactly.
+    """
+    status = runstore.read_status(run_id)
+    if status is None:
+        return {"ok": False, "error": "unknown run"}
+    if status.state == "running":
+        return {"ok": False, "error": "the run is still going — stop it or let it finish first"}
+    try:
+        rounds = int(rounds)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"bad rounds value: {rounds!r}"}
+    if not 1 <= rounds <= 10:
+        return {"ok": False, "error": "rounds must be between 1 and 10"}
+
+    source_dir = runstore.run_dir(run_id)
+    missing = [name for name in ("config.yaml", "result.json", "benchmark.json")
+               if not (source_dir / name).exists()]
+    if missing:
+        reason = f"this run can't be continued — missing {', '.join(missing)}"
+        if "benchmark.json" in missing:
+            reason += ("; runs from before continuation support didn't save their "
+                       "dataset, and a generated one can't be rebuilt identically")
+        return {"ok": False, "error": reason}
+
+    cfg = load_resolved(source_dir / "config.yaml")
+    cfg.designer.rounds = rounds
+    status = runstore.create_run(status.task, cfg)
+    new_dir = runstore.run_dir(status.run_id)
+    shutil.copy(source_dir / "benchmark.json", new_dir / "benchmark.json")
+    shutil.copy(source_dir / "result.json", new_dir / "source_result.json")
+    if (source_dir / "research_notes.md").exists():
+        shutil.copy(source_dir / "research_notes.md", new_dir / "research_notes.md")
+    for folder in ("traces", "skills"):        # carried candidates stay inspectable;
+        if (source_dir / folder).exists():     # the agent's self-built skills carry over
+            shutil.copytree(source_dir / folder, new_dir / folder)
+    (new_dir / "continue.json").write_text(json.dumps(
+        {"source": run_id, "rounds": rounds, "guidance": str(guidance or "")[:4000]}))
+    _spawn_runner(status.run_id)
     return {"ok": True, "run_id": status.run_id}
 
 
@@ -645,6 +740,20 @@ class Handler(BaseHTTPRequestHandler):
                 if not runstore.is_valid_run_id(run_id):
                     return self._json({"error": "bad run id"}, code=400)
                 result = runstore.stop_run(run_id)
+                return self._json(result, code=200 if result.get("ok") else 400)
+            if path.startswith("/api/run/") and path.endswith("/continue"):
+                run_id = path[len("/api/run/"):-len("/continue")]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                body = self._body()
+                result = continue_run(run_id, body.get("rounds", 2),
+                                      guidance=body.get("guidance", ""))
+                return self._json(result, code=200 if result.get("ok") else 400)
+            if path.startswith("/api/run/") and path.endswith("/open"):
+                run_id = path[len("/api/run/"):-len("/open")]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                result = open_run_dir(run_id)
                 return self._json(result, code=200 if result.get("ok") else 400)
             self.send_error(404, "Not Found")
         except Exception as error:

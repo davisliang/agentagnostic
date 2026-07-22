@@ -266,6 +266,66 @@ def test_a_freetext_run_still_rejects_unlisted_settings(runs_dir):
     assert result["ok"] is False and "unknown setting" in result["error"]
 
 
+def test_opening_a_runs_folder_names_only_that_directory(a_run, monkeypatch):
+    spawned = []
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda args, **k: spawned.append(args) or type("P", (), {"pid": 1})())
+    assert "unknown run" in server.open_run_dir("nope-20260101-000000")["error"]
+    result = server.open_run_dir(a_run.run_id)
+    assert result["ok"] is True
+    # the opener is handed exactly the run's directory, nothing else from outside
+    assert spawned[0][-1] == str(runstore.run_dir(a_run.run_id))
+    assert result["path"] == str(runstore.run_dir(a_run.run_id))
+
+
+# ---- continuing a finished search -------------------------------------------
+def test_continuing_refuses_what_it_cannot_resume(a_run):
+    # still running
+    assert "still going" in server.continue_run(a_run.run_id, 2)["error"]
+    assert "unknown run" in server.continue_run("nope-20260101-000000", 2)["error"]
+    runstore.update_status(a_run.run_id, state="done")
+    assert "rounds must be" in server.continue_run(a_run.run_id, 0)["error"]
+    assert "bad rounds" in server.continue_run(a_run.run_id, "lots")["error"]
+    # finished, but nothing saved to resume from — the reason names the files
+    result = server.continue_run(a_run.run_id, 2)
+    assert result["ok"] is False and "benchmark.json" in result["error"]
+
+
+def test_continuing_seeds_a_new_run_from_the_source(a_run, monkeypatch):
+    monkeypatch.setattr(server.subprocess, "Popen",
+                        lambda *a, **k: type("P", (), {"pid": 4242})())
+    source = runstore.run_dir(a_run.run_id)
+    runstore.update_status(a_run.run_id, state="done")
+    (source / "result.json").write_text(json.dumps({"candidates": [
+        {"name": "H", "description": "", "code": "def solve(q, m): return '5'",
+         "dev": {"accuracy": 0.5, "cost_per_query": 0.001}}]}))
+    (source / "benchmark.json").write_text(json.dumps({
+        "analysis": {"description": "Add.", "check_type": "numeric",
+                     "judge_rubric": "", "answer_examples": []},
+        "dev": [{"question": "q", "answer": "1"}],
+        "test": [{"question": "q2", "answer": "2"}],
+        "judge_status": "", "grader": {"kind": "numeric", "task": "", "rubric": ""}}))
+    (source / "research_notes.md").write_text("# use a cascade")
+    (source / "traces").mkdir()
+    (source / "traces" / "sample.json").write_text("{}")
+
+    result = server.continue_run(a_run.run_id, 3, guidance="focus on decomposition")
+    assert result["ok"] is True
+    new_dir = runstore.run_dir(result["run_id"])
+    marker = json.loads((new_dir / "continue.json").read_text())
+    assert marker["source"] == a_run.run_id
+    assert marker["guidance"] == "focus on decomposition"
+    # the new run carries the benchmark, archive, notes and traces...
+    assert (new_dir / "benchmark.json").exists()
+    assert (new_dir / "source_result.json").exists()
+    assert "cascade" in (new_dir / "research_notes.md").read_text()
+    assert (new_dir / "traces" / "sample.json").exists()
+    # ...and runs the asked-for number of extra rounds against the same task
+    cfg = load_resolved(new_dir / "config.yaml")
+    assert cfg.designer.rounds == 3
+    assert runstore.read_status(result["run_id"]).task == "gsm8k"
+
+
 # ---- benchmarks and the comparison view -------------------------------------
 def test_benchmarks_are_listed_with_their_metadata():
     found = {b["name"]: b for b in runstore.list_benchmarks()}

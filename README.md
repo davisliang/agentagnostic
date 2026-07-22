@@ -58,6 +58,11 @@ searches, watches them run, and compares what they found:
 - **Results** — an accuracy-vs-cost plot with the frontier drawn through it, a
   candidate table with dev and test scores side by side, and each workflow's
   source on click.
+- **Continue a search** — a finished run takes more rounds, with an optional
+  **nudge**: free text telling the next designs where to focus. The archive,
+  research notes, working skills and the exact dev/test splits carry over
+  (the benchmark is saved with the run, so generated data is never re-generated),
+  and carried test scores aren't paid for twice.
 - **Every input and output** — pick a candidate, then **dev calls** / **test
   calls**: per example, its score, what the workflow returned, the gold answer,
   and each model call in order with the full prompt sent, the reply received, the

@@ -183,7 +183,7 @@ def run_agent(agent_dir: pathlib.Path, log=print, on_cost=None) -> None:
 
 def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
                      on_cost=None, research_notes: str = "",
-                     run_skills_dir=None) -> list[dict]:
+                     run_skills_dir=None, guidance: str = "") -> list[dict]:
     """Run one design round and collect the workflows it proposed.
 
     Stages a scratch directory, runs the agent there as a subprocess, and streams
@@ -207,6 +207,8 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
             skills directory. Its skills are staged for the agent to read and any
             it writes this round are collected back into it for later rounds. None
             disables the feature.
+        guidance: Operator guidance — free text from the human who reviewed the
+            results so far, telling this round where to focus. "" adds nothing.
 
     Returns:
         The proposed programs as `{"name", "description", "code"}` dicts. Possibly
@@ -222,7 +224,8 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
         "model": cfg.designer.model,
         "skills": skills,
         "allowed_tools": list(cfg.designer.allowed_tools),
-        "prompt": _round_prompt(cfg, benchmark, round_num, context, research_notes),
+        "prompt": _round_prompt(cfg, benchmark, round_num, context, research_notes,
+                                guidance),
     }))
 
     run_agent(agent_dir, log=log, on_cost=on_cost)
@@ -330,17 +333,22 @@ def _collect_skills(agent_dir: pathlib.Path, run_skills_dir) -> list[str]:
 
 
 def _round_prompt(cfg, benchmark, round_num: int, context: str,
-                  research_notes: str = "") -> str:
+                  research_notes: str = "", guidance: str = "") -> str:
     """Build the prompt for one design round.
 
     Args:
         cfg: The run config, for the model list.
         benchmark: The task being optimized.
         round_num: 1-based round number; round 1 gets the "design a diverse set"
-            goal, later rounds the "extend the frontier" one.
-        context: `summarize_archive(...)` output, used from round 2 on.
+            goal, later rounds the "extend the frontier" one. A continued run's
+            round 1 carries the source archive in `context`, so it gets the
+            improve goal despite the number.
+        context: `summarize_archive(...)` output, used whenever non-empty.
         research_notes: The research phase's findings, inlined so the designer
             builds on them. "" when the research phase was skipped or found nothing.
+        guidance: Operator guidance — the human who reviewed the results so far
+            says where to focus. Inlined near the end so it reads as the freshest
+            instruction. "" adds nothing.
 
     Returns:
         The full prompt for the agent.
@@ -394,8 +402,15 @@ def _round_prompt(cfg, benchmark, round_num: int, context: str,
                   "working_skills/helpers.py that your solve() code can then call by "
                   "name — they are injected into the workflow, like extract_last_number.")
 
+    if guidance.strip():
+        facts += ("\n\nOPERATOR GUIDANCE — the human running this search reviewed the "
+                  "results so far and asks the next designs to focus on:\n"
+                  + guidance.strip())
+
+    # An archive means improve-the-frontier, whatever the round number says — a
+    # continued run starts at round 1 but carries the source run's archive.
     goal = (prompts.render("design_goal_initial", description=benchmark.description)
-            if round_num == 1 else
+            if round_num == 1 and not context.strip() else
             prompts.render("design_goal_improve", description=benchmark.description,
                            archive=context))
     return prompts.render("design_round", goal=goal, facts=facts)
