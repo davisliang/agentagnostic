@@ -666,7 +666,7 @@ async function loadDetail() {
   if (cands.length) {
     parts.push(`<h2>candidates</h2><div class="card" style="padding:0">
       <table><thead><tr>
-        <th>workflow</th><th class="num">dev acc</th><th class="num">dev $/q</th>
+        <th>workflow</th><th>round</th><th class="num">dev acc</th><th class="num">dev $/q</th>
         <th class="num">test acc</th><th class="num">test $/q</th><th class="num">cached</th>
       </tr></thead><tbody>` +
       cands.map(c => {
@@ -674,6 +674,7 @@ async function loadDetail() {
         return `<tr class="cand ${selectedCandidate === c.name ? "sel" : ""}" onclick="pick('${esc(c.name)}')">
           <td class="name">${esc(c.name)}${onFront ? `<span class="tag">frontier</span>` : ""}
             ${(c.dev?.errors || []).length ? `<span class="warn" title="${esc((c.dev.errors||[]).join(' | '))}">⚠</span>` : ""}</td>
+          <td style="color:#7c8699">${c.round == null ? "—" : c.round === 0 ? "carried" : c.round}</td>
           <td class="num">${acc(c.dev?.accuracy)}</td>
           <td class="num">${usd(c.dev?.cost_per_query)}</td>
           <td class="num">${acc(c.test?.accuracy)}</td>
