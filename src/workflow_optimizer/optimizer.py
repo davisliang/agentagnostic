@@ -229,16 +229,19 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
     frontier = pareto_front(search.archive, on=DEV)
     emit({"event": "ranking", "n_finalists": len(frontier)})
     for candidate in frontier:
-        if candidate.test is None:
+        fresh = candidate.test is None
+        if fresh:
             candidate.test = evaluator.run(candidate.program, benchmark.test)
             scored(candidate, "test", candidate.test)
         # else: carried from the source run — the same held-out split was
         # already paid for, and re-scoring would only add sampling noise.
         search.finalists.append(candidate)
         log(f"  {candidate.name:24s} test acc {candidate.test.accuracy:.2f}  "
-            f"${candidate.test.cost:.5f}/query")
+            f"${candidate.test.cost:.5f}/query" + ("" if fresh else "  (kept)"))
         emit({"event": "test_scored", "name": candidate.name,
-              "test_accuracy": candidate.test.accuracy, "test_cost": candidate.test.cost})
+              "test_accuracy": candidate.test.accuracy, "test_cost": candidate.test.cost,
+              # kept scores were paid for by the source run; the spend view skips them
+              "kept": not fresh})
     return search
 
 
