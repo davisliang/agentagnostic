@@ -1,0 +1,10 @@
+# fanoutqa — imported by scripts/import_fanoutqa.py from zhudotexe/fanoutqa (dev split)
+name: fanoutqa
+description: >-
+  A fan-out multi-hop question: it asks for a specific fact about each of many entities (typically five or more), so answering it requires gathering facts about every entity and combining them. Answer with a single string that states the value for EVERY entity the question asks about (for example, a list of 'Entity: value' pairs). Grading is a loose string match in [0, 1]: it checks what fraction of the required entities and values from the reference answer appear in your answer, so a partial answer earns partial credit — cover all of them.
+source_dataset: fanoutqa-dev
+examples: 310
+grading_supported: true
+check_type: exact
+routerllm_grader: loose-string
+grader: benchmarks/_graders/fanoutqa.py

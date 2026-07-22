@@ -57,7 +57,12 @@ def evaluate(candidate_path: str) -> dict:
                           judge_model=session.cfg.judge.model,
                           task=check["task"], rubric=check["rubric"]))
 
-    program = {"name": os.path.basename(candidate_path), "code": open(candidate_path).read()}
+    # Inject the run's operators (working_skills/helpers.py) exactly as the search
+    # does, so a workflow that calls them scores here what it will score there.
+    helpers = open("working_skills/helpers.py").read() if os.path.exists(
+        "working_skills/helpers.py") else ""
+    program = {"name": os.path.basename(candidate_path),
+               "code": open(candidate_path).read(), "helpers": helpers}
     score = session.evaluator(grader).run(program, dev)
 
     if score.error:

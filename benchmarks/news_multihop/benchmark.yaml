@@ -1,0 +1,13 @@
+# news_multihop — cross-source multi-hop QA over recent news
+# Timestamped: answers verified as of 2026-07-21 (events from 2026-07-06 to 2026-07-21).
+name: news_multihop
+description: >-
+  Cross-source multi-hop QA over recent (post-cutoff) news. The model-facing task description is kept neutral so the search must discover both that answers require web retrieval and that they must be composed from several sources.
+source_dataset: news
+as_of: 2026-07-21
+window: '2026-07-06 to 2026-07-21'
+examples: 30
+grading_supported: true
+check_type: exact
+routerllm_grader: contains
+grader: benchmarks/_graders/contains.py

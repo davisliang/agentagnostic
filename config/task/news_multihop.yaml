@@ -1,0 +1,25 @@
+# Cross-source multi-hop QA over recent (post-cutoff) news. Closes both
+# bypasses: must retrieve (no recall) AND must combine facts from several
+# sources (no single-call shortcut). Open-book; code execution allowed.
+# NOTE (human context only; these comments never reach the model): the task
+# description below is kept NEUTRAL on purpose — it must not tell the design
+# agent that the answers are recent, that web search is needed, or that the
+# answer is composed from several sources, so that the search discovering all
+# of that on its own is a real result rather than a hint.
+# Timestamped: answers as of 2026-07-21 (events from 2026-07-06 to 2026-07-21).
+task:
+  name: news_multihop
+  description: >-
+    Answer the question with a single short answer — a number or a name — and nothing else.
+  check_type: exact
+  dataset: benchmarks/news_multihop/data.jsonl
+  grader: benchmarks/_graders/contains.py
+  answer_examples:
+    - "188"
+    - "Wally Funk"
+    - "$27.83 billion"
+    - "Goldman Sachs"
+runtime:
+  tools: [web_search, web_fetch, code_execution]   # retrieve per hop, then aggregate
+data:
+  n_examples: 30     # use all of them (30 multi-hop questions)

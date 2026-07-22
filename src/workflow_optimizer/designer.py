@@ -66,17 +66,17 @@ def summarize_archive(candidates: list, failures_shown: int = 4,
     on_frontier = {id(c) for c in frontier}
 
     dominated = [c for c in candidates if id(c) not in on_frontier]
-    start = max(0, len(dominated) - dominated_shown)         # most recent dominated_shown
-    kept = on_frontier | {id(c) for c in dominated[start:]}
-    omitted = len(dominated) - len(dominated[start:])
+    kept_dominated = dominated[max(0, len(dominated) - dominated_shown):]  # most recent
+    shown = on_frontier | {id(c) for c in kept_dominated}
+    omitted = len(dominated) - len(kept_dominated)
 
     header = ["Current dev Pareto frontier (cheapest -> most accurate):"]
     header += [f"  {c.name}: accuracy {c.dev.accuracy:.2f}, ${c.dev.cost:.5f}/query"
                for c in frontier]
 
     blocks = []
-    for c in candidates:                                     # kept ones, in proposal order
-        if id(c) not in kept:
+    for c in candidates:                                     # shown ones, in proposal order
+        if id(c) not in shown:
             continue
         mark = "  [ON FRONTIER]" if id(c) in on_frontier else ""
         parts = [f"### {c.name}{mark} — accuracy {c.dev.accuracy:.2f}, "
@@ -177,14 +177,15 @@ def run_agent(agent_dir: pathlib.Path, log=print, on_cost=None) -> None:
     for line in process.stdout:
         line = line.rstrip()
         log(line)
-        found = AGENT_COST.search(line)
-        if found and on_cost:
-            on_cost(float(found.group(1)), int(found.group(2)))
+        match = AGENT_COST.search(line)
+        if match and on_cost:
+            on_cost(float(match.group(1)), int(match.group(2)))
     process.wait()
 
 
 def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
-                     on_cost=None, research_notes: str = "") -> list[dict]:
+                     on_cost=None, research_notes: str = "",
+                     run_skills_dir=None) -> list[dict]:
     """Run one design round and collect the workflows it proposed.
 
     Stages a scratch directory, runs the agent there as a subprocess, and streams
@@ -204,26 +205,56 @@ def run_design_round(cfg, benchmark, round_num: int, context: str, log=print,
             this is the only place it can be seen.
         research_notes: The research phase's `research_notes.md`, or "". Passed to
             the round prompt so the designer builds on what was found for the task.
+        run_skills_dir: When `designer.working_skills` is on, the run's persistent
+            skills directory. Its skills are staged for the agent to read and any
+            it writes this round are collected back into it for later rounds. None
+            disables the feature.
 
     Returns:
         The proposed programs as `{"name", "description", "code"}` dicts. Possibly
         empty if the agent produced nothing usable.
     """
     agent_dir = pathlib.Path(tempfile.mkdtemp(prefix=f"workflow_design_r{round_num}_"))
-    _stage_agent_dir(cfg, benchmark, agent_dir)
+    _stage_agent_dir(cfg, benchmark, agent_dir, run_skills_dir)
 
+    skills = list(cfg.designer.skills)
+    if cfg.designer.working_skills:
+        skills.append("workflow-skills")     # teaches the agent to read/write working_skills/
     (agent_dir / "proposer_config.json").write_text(json.dumps({
         "model": cfg.designer.model,
-        "skills": list(cfg.designer.skills),
+        "skills": skills,
         "allowed_tools": list(cfg.designer.allowed_tools),
         "prompt": _round_prompt(cfg, benchmark, round_num, context, research_notes),
     }))
 
     run_agent(agent_dir, log=log, on_cost=on_cost)
-    return _collect_programs(agent_dir)
+    if cfg.designer.working_skills and run_skills_dir is not None:
+        _collect_skills(agent_dir, run_skills_dir)
+    programs = _collect_programs(agent_dir)
+    helpers = _read_helpers(agent_dir)                 # the run's operators, if any
+    for program in programs:
+        program["helpers"] = helpers                   # snapshot what these workflows may call
+    return programs
 
 
-def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path) -> None:
+def _read_helpers(agent_dir: pathlib.Path) -> str:
+    """Read the run's operator source (`working_skills/helpers.py`) the agent wrote.
+
+    Functions defined here are injected before every candidate at eval time, so a
+    workflow can call them by name. Empty when the agent wrote none (or the feature
+    is off).
+
+    Args:
+        agent_dir: The directory the agent ran in.
+
+    Returns:
+        The contents of `working_skills/helpers.py`, or "".
+    """
+    path = agent_dir / "working_skills" / "helpers.py"
+    return path.read_text() if path.exists() else ""
+
+
+def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path, run_skills_dir=None) -> None:
     """Write everything the agent and its dev evaluator read from their cwd.
 
     Args:
@@ -232,6 +263,9 @@ def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path) -> None:
             same per-query limits.
         benchmark: Supplies the task description, grading rule and dev sample.
         agent_dir: The scratch directory to populate.
+        run_skills_dir: When `designer.working_skills` is on, the run's persistent
+            skills directory; its skills are copied into `working_skills/` for the
+            agent to read (and extend). None or the flag off stages nothing extra.
     """
     (agent_dir / "run_config.yaml").write_text(OmegaConf.to_yaml(cfg))
     (agent_dir / "task_spec.json").write_text(json.dumps({
@@ -248,6 +282,40 @@ def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path) -> None:
     skills_dir.mkdir(parents=True)
     for name in cfg.designer.skills:
         shutil.copytree(SKILLS_DIR / name, skills_dir / name)
+
+    if cfg.designer.working_skills:
+        # The meta-skill teaches the agent to use working_skills/; the directory
+        # itself carries whatever it wrote in earlier rounds of this run — both
+        # SKILL.md notes and helpers.py operators — for it to read and extend. Kept
+        # OUT of .claude/skills so an agent-written note with bad frontmatter can't
+        # break the SDK's skill loading; the agent reads it via the meta-skill.
+        shutil.copytree(SKILLS_DIR / "workflow-skills", skills_dir / "workflow-skills")
+        working = agent_dir / "working_skills"
+        if run_skills_dir and pathlib.Path(run_skills_dir).exists():
+            shutil.copytree(run_skills_dir, working)     # bring forward notes AND helpers.py
+        else:
+            working.mkdir()
+
+
+def _collect_skills(agent_dir: pathlib.Path, run_skills_dir) -> None:
+    """Persist the skills the agent wrote this round into the run's skills directory.
+
+    The agent reads and writes `working_skills/` in its scratch directory, and that
+    scratch is discarded, so anything it wrote is copied back here to survive into
+    the next round of the SAME run (the directory is fresh per run).
+
+    Args:
+        agent_dir: The directory the agent ran in.
+        run_skills_dir: The run's persistent skills directory to copy into.
+    """
+    written = agent_dir / "working_skills"
+    if not written.exists():
+        return
+    run_skills_dir = pathlib.Path(run_skills_dir)
+    run_skills_dir.mkdir(parents=True, exist_ok=True)
+    # Mirror everything back — SKILL.md notes and helpers.py alike — so the next
+    # round reads and extends what this one wrote.
+    shutil.copytree(written, run_skills_dir, dirs_exist_ok=True)
 
 
 def _round_prompt(cfg, benchmark, round_num: int, context: str,
@@ -307,6 +375,13 @@ def _round_prompt(cfg, benchmark, round_num: int, context: str,
                   "research before designing) — build on these, and don't spend "
                   "candidates rediscovering what they report as wasted effort:\n"
                   + research_notes.strip())
+
+    if cfg.designer.working_skills:
+        facts += ("\n\nYou have a working_skills/ directory (see the workflow-skills "
+                  "skill): read any notes there and build on them; record reusable "
+                  "lessons as skills; and write reusable operators in "
+                  "working_skills/helpers.py that your solve() code can then call by "
+                  "name — they are injected into the workflow, like extract_last_number.")
 
     goal = (prompts.render("design_goal_initial", description=benchmark.description)
             if round_num == 1 else

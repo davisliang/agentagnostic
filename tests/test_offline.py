@@ -21,7 +21,7 @@ from workflow_optimizer.models import ModelCatalog
 from workflow_optimizer.optimizer import DEV, TEST, Candidate
 from workflow_optimizer.pareto import best_under_budget, cheapest_above_accuracy, pareto_front
 from workflow_optimizer.paths import ROOT, SKILLS_DIR
-from workflow_optimizer.runtime import Evaluator, SplitScore, unwrap_answer
+from workflow_optimizer.runtime import Evaluator, SplitScore, compile_solve, unwrap_answer
 from workflow_optimizer.session import Session
 
 SRC = ROOT / "src"
@@ -180,6 +180,27 @@ def test_a_program_without_solve_is_rejected(cfg, catalog):
     assert "solve" in evaluator(cfg, catalog).run({"name": "x", "code": "y = 1\n"}, DATA).error
 
 
+def test_operators_are_injected_so_a_workflow_can_call_them(catalog):
+    # a function defined in `helpers` is callable from `solve` by name, no import —
+    # this is how a workflow uses the operators the design agent wrote for the run
+    helpers = "def triple(x):\n    return x * 3\n"
+    code = "def solve(question, call_model):\n    return str(triple(int(question)))\n"
+    assert compile_solve(code, catalog, helpers=helpers)("14", None) == "42"
+
+
+def test_a_broken_operator_fails_the_candidate_not_the_search(cfg, catalog):
+    # a syntax error in the shared operators surfaces as a compile error on the
+    # candidate, caught like any other, rather than crashing the run
+    program = {"name": "x", "code": "def solve(q, c):\n    return '1'\n",
+               "helpers": "def bad(:\n    pass\n"}
+    assert "compile" in evaluator(cfg, catalog).run(program, DATA).error
+
+
+def test_a_candidate_carries_its_operators_into_its_program():
+    c = Candidate("H", "", "def solve(q, c): return '1'", helpers="def op(): pass")
+    assert c.program["helpers"] == "def op(): pass"
+
+
 # The sandbox has to admit ordinary Python. A name it refuses doesn't read as
 # "blocked" in the results — it reads as "this strategy scores 0", and the search
 # then avoids a whole family of workflow for a reason nothing reports.
@@ -242,6 +263,15 @@ def test_an_unknown_key_is_rejected():
         load_config("gsm8k", ["designer.rouds=1"])
 
 
+def test_a_task_can_supply_its_own_judge_rubric():
+    # a known-shape task carries its rubric straight through, skipping the analyzer
+    judged = analysis.analysis_from_config(load_config("fanoutqa_judge"))
+    assert judged.check_type == "llm_judge"
+    assert "reference" in judged.judge_rubric.lower()      # the task's own rubric, not generic
+    # a described task that sets no rubric falls back to empty (the generic judge)
+    assert analysis.analysis_from_config(load_config("game24")).judge_rubric == ""
+
+
 def test_a_session_wires_config_catalog_and_client_together(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
     session = Session.load("gsm8k", ["designer.rounds=1"])
@@ -253,8 +283,8 @@ def test_a_session_wires_config_catalog_and_client_together(monkeypatch):
 
 # ---- prompts ----------------------------------------------------------------
 def test_prompts_are_filled_from_files():
-    text = prompts.render("judge", task="t", rubric="r", gold="g", prediction="p")
-    assert "Task: t" in text and "$" not in text
+    text = prompts.render("judge", task="t", question="q", rubric="r", gold="g", prediction="p")
+    assert "Task: t" in text and "Question:" in text and "$" not in text
 
 
 def test_a_missing_prompt_variable_is_an_error_not_a_blank():
@@ -277,6 +307,34 @@ def test_the_agent_dir_has_everything_the_eval_skill_reads(cfg, tmp_path):
         assert (tmp_path / ".claude" / "skills" / skill / "SKILL.md").exists()
     # the staged config round-trips, so the agent meters candidates as the search does
     assert load_resolved(tmp_path / "run_config.yaml").runtime.max_model_calls == cfg.runtime.max_model_calls
+
+
+def test_working_skills_off_by_default_stages_nothing_extra(cfg, tmp_path):
+    _stage_agent_dir(cfg, benchmark_fixture(), tmp_path)   # cfg default: working_skills off
+    assert not (tmp_path / "working_skills").exists()
+    assert not (tmp_path / ".claude" / "skills" / "workflow-skills").exists()
+
+
+def test_working_skills_are_staged_for_reading_and_collected_after(tmp_path):
+    from workflow_optimizer.designer import _collect_skills
+    cfg = load_config("gsm8k", ["designer.working_skills=true"])
+    run_skills = tmp_path / "run_skills"
+    (run_skills / "prior").mkdir(parents=True)
+    (run_skills / "prior" / "SKILL.md").write_text("---\nname: prior\n---\na lesson")
+
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    _stage_agent_dir(cfg, benchmark_fixture(), agent_dir, run_skills)
+    # an earlier round's skill is handed to the agent, and the meta-skill is loaded
+    assert (agent_dir / "working_skills" / "prior" / "SKILL.md").exists()
+    assert (agent_dir / ".claude" / "skills" / "workflow-skills" / "SKILL.md").exists()
+
+    # a skill the agent writes this round is persisted back for the next round
+    learned = agent_dir / "working_skills" / "learned"
+    learned.mkdir()
+    (learned / "SKILL.md").write_text("---\nname: learned\n---\nstrip trailing whitespace")
+    _collect_skills(agent_dir, run_skills)
+    assert (run_skills / "learned" / "SKILL.md").exists()
 
 
 def test_round_one_asks_for_diversity_and_later_rounds_extend_the_frontier(cfg):

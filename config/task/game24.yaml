@@ -1,0 +1,15 @@
+# Game of 24 — a task that needs elaborate (search / verify-loop) structure.
+# Closed-book on purpose (runtime.tools: []): no code execution, so the
+# WORKFLOW must do the reasoning, not a one-line brute-force tool call.
+task:
+  name: game24
+  description: >-
+    Game of 24. You are given four numbers. Produce a single arithmetic expression that uses each of the four numbers exactly once, together with the operators + - * / and parentheses, and that evaluates to exactly 24. Answer with only the expression (for example, for 4, 7, 8, 8 the answer 4*(7-8/8) evaluates to 24). The expression is graded by evaluating it: it scores 1 if it uses each given number exactly once and equals 24, else 0.
+  check_type: exact
+  dataset: benchmarks/game24/data.jsonl
+  grader: benchmarks/_graders/game24.py
+  answer_examples: ['4*(7-8/8)', '(4+8)*(3-1)']
+runtime:
+  tools: []          # closed-book: the structure must do the work, not a tool
+data:
+  n_examples: 40     # 24 dev / 16 test at dev_fraction 0.6

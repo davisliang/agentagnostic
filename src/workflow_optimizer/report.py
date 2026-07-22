@@ -139,5 +139,8 @@ def _as_dict(candidate: Candidate) -> dict:
             scores[split] = {"accuracy": score.accuracy, "cost_per_query": score.cost,
                              "cached_input_frac": score.cached_input_frac,
                              "errors": score.errors[:3]}
-    return {"name": candidate.name, "description": candidate.description,
-            "code": candidate.code, **scores}
+    record = {"name": candidate.name, "description": candidate.description,
+              "code": candidate.code}
+    if candidate.helpers:                    # the operators the code calls — kept so it runs
+        record["helpers"] = candidate.helpers
+    return {**record, **scores}

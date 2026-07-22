@@ -1,5 +1,8 @@
 Task: ${task}
 
+Question:
+${question}
+
 Grading rubric:
 ${rubric}
 
@@ -9,5 +12,5 @@ ${gold}
 Candidate answer:
 ${prediction}
 
-Score how well the candidate satisfies the rubric for the task, from 0 to 100
-(100 = fully correct/complete, 0 = wrong or empty).
+Score how well the candidate answers the question and satisfies the rubric, from
+0 to 100 (100 = fully correct/complete, 0 = wrong or empty).

@@ -1,0 +1,22 @@
+# Recent-news QA — post-cutoff facts, so the workflow must retrieve, not recall.
+# NOTE (human context only; these comments never reach the model): the task
+# description below is kept NEUTRAL on purpose — it must not tell the design
+# agent that the answers are recent or that web search is needed, so that the
+# search discovering retrieval on its own is a real result, not a hint.
+# Timestamped: answers as of 2026-07-21 (events from 2026-07-14 to 2026-07-21).
+task:
+  name: news_current
+  description: >-
+    Answer the question with a single short, specific answer — a name, number, place, or date — and nothing else.
+  check_type: exact
+  dataset: benchmarks/news_current/data.jsonl
+  grader: benchmarks/_graders/contains.py
+  answer_examples:
+    - "Spain"
+    - "Kimi Antonelli"
+    - "Ryan Fox"
+    - "$12.56 billion"
+runtime:
+  tools: [web_search, web_fetch]   # post-cutoff facts: retrieval is mandatory
+data:
+  n_examples: 35     # use all of them (35 facts)

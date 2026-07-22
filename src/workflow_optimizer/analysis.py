@@ -159,7 +159,7 @@ def analysis_from_config(cfg) -> Optional[TaskAnalysis]:
         return None
     return TaskAnalysis(description=cfg.task.description,
                         check_type=cfg.task.check_type or "exact",
-                        judge_rubric="",
+                        judge_rubric=cfg.task.judge_rubric or "",
                         answer_examples=list(cfg.task.answer_examples))
 
 

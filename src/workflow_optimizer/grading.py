@@ -136,24 +136,29 @@ class Grader:
                            and abs(predicted - expected) < 1e-6) else 0.0
         if self.kind == "exact":
             return 1.0 if str(prediction).strip().casefold() == str(gold).strip().casefold() else 0.0
-        return self.judge(prediction, gold)
+        return self.judge(prediction, gold, item.get("question", ""))
 
-    def judge(self, prediction, gold) -> float:
+    def judge(self, prediction, gold, question="") -> float:
         """Score a free-form answer against the rubric, using a model.
 
         The gold answer is shown as an example of a good answer, not the only
-        acceptable one.
+        acceptable one. The question is shown too, so the judge can tell an answer
+        to a DIFFERENT question from a correct one — the gold alone can be
+        ambiguous about what was asked.
 
         Args:
             prediction: The candidate answer.
             gold: A reference answer for the same input.
+            question: The input the answer is responding to. "" when there is
+                none — e.g. rubric calibration, which judges an answer against
+                itself and needs no question.
 
         Returns:
             A score in [0, 1] — the judge's 0-100 verdict, clamped. Returns 0.0
             if the judge refuses or its reply doesn't parse.
         """
         prompt = prompts.render(
-            "judge", task=self.task,
+            "judge", task=self.task, question=question,
             rubric=self.rubric.strip() or
                    "Does the candidate correctly and completely satisfy the task?",
             gold=gold, prediction=prediction)

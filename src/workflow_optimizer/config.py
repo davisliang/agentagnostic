@@ -63,9 +63,9 @@ class RuntimeConfig:
         concurrency: How many examples are scored at once. API latency dominates
             the wall clock, so this is the main speed knob.
         tools: Server-side tools a workflow may call — a subset of
-            "code_execution" and "web_search". A workflow that calls one not on
-            this list is rejected, so a closed-book benchmark can set `tools: []`
-            and be sure no candidate reached the web. Empty means neither.
+            "code_execution", "web_search", and "web_fetch". A workflow that calls
+            one not on this list is rejected, so a closed-book benchmark can set
+            `tools: []` and be sure no candidate reached the web. Empty means none.
     """
     max_model_calls: int = 24
     max_tokens: int = 120_000
@@ -128,6 +128,12 @@ class DesignerConfig:
             only what the model already carries in its weights).
         dev_sample_size: How many dev examples the agent may self-test against
             while iterating.
+        working_skills: Whether the design agent gets a `working_skills/` directory
+            it can read and write across the rounds of a single run. A skill
+            (a short SKILL.md note on a technique or task gotcha) it writes in one
+            round is staged back in for later rounds of the SAME run, then
+            discarded when the run ends — a within-run, self-built skill memory.
+            Off keeps the fixed skill set.
         failures_shown: How many of each candidate's worst dev examples to hand
             the next round, so it can see WHERE existing designs break — the
             signal a scalar accuracy hides — not just that they scored what they
@@ -145,6 +151,7 @@ class DesignerConfig:
     model: str = "claude-opus-4-8"
     rounds: int = 3
     research: bool = True
+    working_skills: bool = False
     dev_sample_size: int = 5
     failures_shown: int = 4
     dominated_shown: int = 10
@@ -174,6 +181,10 @@ class TaskConfig:
             when `description` is set.
         answer_examples: Correctly formatted answers, shown to the design agent
             as the target format. Only read when `description` is set.
+        judge_rubric: Grading criteria for `check_type: llm_judge`, so a known-shape
+            task can supply its own rubric instead of the analyzer inferring one or
+            falling back to a generic judge. Only read when `description` is set and
+            `check_type` is "llm_judge"; still calibrated before use.
     """
     name: str = "custom"
     seed_prompt: str = ""
@@ -182,6 +193,7 @@ class TaskConfig:
     description: Optional[str] = None
     check_type: Optional[str] = None
     answer_examples: list[str] = field(default_factory=list)
+    judge_rubric: str = ""
 
 
 @dataclass

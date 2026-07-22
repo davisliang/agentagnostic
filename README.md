@@ -102,6 +102,13 @@ Grading is mapped onto ours where it can be: `exact` → exact match, `contains`
 `benchmarks/_graders/contains.py`, `grid` → `benchmarks/_graders/grid.py` (both
 ported from routerllm so a score means the same thing), `judge` → our LLM judge.
 
+Other tasks are built the same way by their own scripts, each freezing a
+`benchmark.yaml` + `data.jsonl` + `config/task/<name>.yaml` and its grader:
+`scripts/make_game24.py` (a solver-generated puzzle set), `scripts/import_fanoutqa.py`
+(fan-out multi-hop QA, plus a judge-graded variant), and `scripts/build_news_current.py`
+/ `scripts/build_news_multihop.py` (recent-news QA frozen from a sourced,
+timestamped `sources.json`).
+
 Three tasks are graded natively by machinery that needs more than a prompt and
 an answer. `ifeval` works through the existing checker in `experiments/`.
 `humaneval_plus_gen` and `mbpp_plus` need a sandboxed test harness we don't have,
@@ -161,7 +168,7 @@ things, and all the generality rides on them:
    only on what the model already carries in its weights. Skipped with
    `designer.research=false`.
 3. **Design and optimize** (`designer`, `optimizer`) — a **Claude Agent SDK** agent
-   runs once per round, driven by the three skills below and the research notes. Round 1
+   runs once per round, driven by the skills below and the research notes. Round 1
    designs a diverse initial set; each later round is shown the **archive so far** —
    every frontier workflow's code, its dev accuracy and cost, and the dev examples it
    got wrong, plus recent dominated near-misses (`designer.dominated_shown` caps how
@@ -170,6 +177,10 @@ things, and all the generality rides on them:
    fewer calls, difficulty routing, code execution instead of many samples). Feeding
    back the per-example failures, not just a scalar accuracy, is what tells a new design
    where the current ones break. Every candidate is scored on dev and added to the archive.
+   With `designer.working_skills=true` the agent also keeps a **run-scoped `working_skills/`
+   folder** it reads and writes across rounds: `SKILL.md` notes on what it learned, and
+   reusable operators in `helpers.py` that its workflows call by name (injected into the
+   sandbox like `extract_last_number`).
 4. **Rank finalists** — the dev frontier is re-scored on the **held-out test split**,
    for numbers nothing was tuned against.
 5. **Choose** (`report`) — the frontier, the two constrained picks (*the best workflow
@@ -188,6 +199,7 @@ skills/                 what the design agent is taught
   workflow-design/      the methodology and the program contract
   workflow-eval/        the dev evaluator (a wrapper over the same runtime)
   workflow-naming/      naming workflows by structure, so results tables compare
+  workflow-skills/      (opt-in) read/write run-scoped skill notes + callable operators
 src/workflow_optimizer/
   config.py             typed config schema + loading/overrides
   session.py            Session: config + catalog + client, wired once
@@ -235,7 +247,9 @@ instead of being silently ignored.
 
 Optional task fields: `dataset` (a `.jsonl` of `{"question", "answer"}`), `grader`
 (a `.py` exposing `grade(prediction, item) -> float`, to score with an external
-benchmark's own metric), and `description` (skip the analyzer).
+benchmark's own metric), `description` (skip the analyzer), and — for
+`check_type: llm_judge` — `judge_rubric` (a known-shape task's own grading
+criteria, still calibrated before use, instead of letting the analyzer infer one).
 
 ## The metered runtime
 
@@ -249,7 +263,9 @@ Generated programs are model-written code, so each one runs through
   (see `compile_solve`). The allowlist is deliberately generous: a name it refuses
   doesn't read as "blocked" in the results, it reads as "this strategy scores 0". This
   raises the bar; it is **not** a security boundary — run genuinely untrusted code in a
-  container.
+  container. When run-scoped operators are enabled, the agent's `helpers.py` is executed
+  into the same namespace before each candidate, under the same restrictions, so a
+  workflow can call its operators by name.
 
 The design agent's dev evaluator (`skills/workflow-eval/eval_candidate.py`) is a thin
 **wrapper over this same code**, handed the same resolved config, so a dev number means

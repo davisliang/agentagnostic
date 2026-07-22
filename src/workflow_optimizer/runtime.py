@@ -136,8 +136,8 @@ class CallMeter:
             model: Model id to route to. Unknown or omitted falls back to the
                 default — model-written code routes by name and may invent one.
             system: Optional system prompt.
-            tools: Server-side tools to enable: "code_execution", "web_search".
-                A tool not on the task's allowlist raises RuntimeError.
+            tools: Server-side tools to enable: "code_execution", "web_search",
+                "web_fetch". A tool not on the task's allowlist raises RuntimeError.
             effort: Thinking depth, "low" through "max". Ignored on models that
                 cannot think.
             schema: JSON Schema (or Pydantic class) constraining the reply. The
@@ -232,12 +232,19 @@ def _guarded_import(name, *args, **kwargs):
     return builtins.__import__(name, *args, **kwargs)
 
 
-def compile_solve(code: str, catalog: ModelCatalog) -> Callable:
+def compile_solve(code: str, catalog: ModelCatalog, helpers: str = "") -> Callable:
     """Execute a candidate's source and return its `solve` function.
 
     The program may use `re`, `json`, `statistics`, `Counter`,
     `extract_last_number`, `MODELS` and `ANSWER_SCHEMA` without importing them
     (see the workflow-design skill).
+
+    `helpers`, when given, is executed into the same namespace BEFORE the
+    candidate, so anything it defines — the run's shared operators, written by the
+    design agent into `working_skills/helpers.py` — is callable from `solve` by
+    name, exactly like `extract_last_number`. It runs under the same sandbox as
+    the candidate, so a syntax error or a blocked import in the operators fails the
+    candidate loudly rather than passing silently.
 
     This sandbox raises the bar; it is not a security boundary. Run genuinely
     untrusted code in a container.
@@ -245,13 +252,15 @@ def compile_solve(code: str, catalog: ModelCatalog) -> Callable:
     Args:
         code: The candidate's Python source.
         catalog: Supplies `MODELS`, the model ids a workflow may route over.
+        helpers: Optional operator source to define in the namespace first, so the
+            candidate can call its functions. "" injects nothing.
 
     Returns:
         The program's `solve(question, call_model) -> answer` function.
 
     Raises:
         ValueError: The source defines no callable `solve`.
-        ImportError: The source imports a module outside the allowlist.
+        ImportError: The source (or the helpers) imports a module outside the allowlist.
         Exception: Anything else raised while executing the source at module level.
     """
     allowed = {n: getattr(builtins, n) for n in _ALLOWED_BUILTINS.split()}
@@ -263,6 +272,8 @@ def compile_solve(code: str, catalog: ModelCatalog) -> Callable:
         "extract_last_number": extract_last_number,
         "MODELS": catalog.ids, "ANSWER_SCHEMA": ANSWER_SCHEMA,
     }
+    if helpers:
+        exec(helpers, namespace)     # the run's shared operators, same sandbox
     exec(code, namespace)
     if not callable(namespace.get("solve")):
         raise ValueError("program does not define solve(question, call_model)")
@@ -363,7 +374,8 @@ class Evaluator:
         sinking the whole evaluation.
 
         Args:
-            program: `{"name": str, "code": str}` — the candidate's source.
+            program: `{"name": str, "code": str}`, optionally with `"helpers": str`
+                — operator source injected before the code (see `compile_solve`).
             dataset: Examples, each `{"question": ..., "answer": ...}`. A custom
                 grader may read other keys too.
 
@@ -378,7 +390,8 @@ class Evaluator:
         if not dataset:
             raise ValueError(f"nothing to evaluate {program['name']} on: empty dataset")
         try:
-            solve = compile_solve(program["code"], self.client.catalog)
+            solve = compile_solve(program["code"], self.client.catalog,
+                                  helpers=program.get("helpers", ""))
         except Exception as error:
             return SplitScore(name=program["name"], error=f"compile: {error}")
 

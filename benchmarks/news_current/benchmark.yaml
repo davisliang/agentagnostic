@@ -1,0 +1,13 @@
+# news_current — recent-news QA, built by scripts/build_news_current.py
+# Timestamped: answers verified as of 2026-07-21 (events from 2026-07-14 to 2026-07-21).
+name: news_current
+description: >-
+  Short-answer QA over recent (post-cutoff) news events. The model-facing task description is kept neutral so the search must discover for itself that the answers require web retrieval.
+source_dataset: news
+as_of: 2026-07-21
+window: '2026-07-14 to 2026-07-21'
+examples: 35
+grading_supported: true
+check_type: exact
+routerllm_grader: contains
+grader: benchmarks/_graders/contains.py

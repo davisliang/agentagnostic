@@ -1,0 +1,9 @@
+# fanoutqa_judge — the fanoutqa data, graded by a reference-based LLM judge
+name: fanoutqa_judge
+description: >-
+  A fan-out multi-hop question: it asks for a specific fact about each of many entities (typically five or more), so answering it requires gathering facts about every entity and combining them. Answer with a single string that states the value for EVERY entity the question asks about (for example, a list of 'Entity: value' pairs). Cover all of them — completeness is graded.
+source_dataset: fanoutqa-dev
+examples: 310
+grading_supported: true
+check_type: llm_judge
+routerllm_grader: llm-judge

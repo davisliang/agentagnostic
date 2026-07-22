@@ -82,7 +82,9 @@ def main(run_id: str) -> int:
         _save_on_exit(run_id, cfg, search, log)
         optimize(cfg, benchmark, session.evaluator(benchmark.grader),
                  log=log, on_event=emit, on_scored=keep_trace,
-                 on_research=keep_research, search=search)
+                 on_research=keep_research,
+                 skills_dir=directory / "skills",   # keep the run's working skills for inspection
+                 search=search)
 
         report.summarize(search, cfg, log=log)
         _write_result(run_id, cfg, search)

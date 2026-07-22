@@ -8,6 +8,8 @@ every candidate is scored on dev and added to the archive. Only the dev Pareto
 frontier is re-scored on test — those are the candidates actually worth choosing
 between, and test calls cost money.
 """
+import pathlib
+import tempfile
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -31,19 +33,23 @@ class Candidate:
         name: Structural name, e.g. "H×3→vote→?S^". Unique within a search.
         description: The agent's one-line summary of what the workflow does.
         code: The program's source — a `solve(question, call_model)` definition.
+        helpers: The run's shared operator source (`working_skills/helpers.py`)
+            this workflow may call, snapshotted when it was designed. Injected
+            before `code` at eval time. "" when no operators were written.
         dev: Its SplitScore on the dev split, set once scored.
         test: Its SplitScore on held-out test. Only finalists have one.
     """
     name: str
     description: str
     code: str
+    helpers: str = ""
     dev: Optional[SplitScore] = None
     test: Optional[SplitScore] = None
 
     @property
     def program(self) -> dict:
-        """The `{"name", "code"}` dict `Evaluator.run` takes."""
-        return {"name": self.name, "code": self.code}
+        """The `{"name", "code", "helpers"}` dict `Evaluator.run` takes."""
+        return {"name": self.name, "code": self.code, "helpers": self.helpers}
 
 
 @dataclass
@@ -61,7 +67,7 @@ class Search:
 
 
 def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
-             on_event=None, on_scored=None, on_research=None,
+             on_event=None, on_scored=None, on_research=None, skills_dir=None,
              search: "Search" = None) -> Search:
     """Research the task, design candidates, score them on dev, rank on test.
 
@@ -82,6 +88,11 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
             phase's `research_notes.md` text, so a caller can persist it. The notes
             can be large, which is why they go through a callback rather than the
             event stream.
+        skills_dir: Where to keep the run's `working_skills/` when
+            `designer.working_skills` is on — the design agent reads and extends it
+            across rounds. Defaults to a fresh temp dir (discarded with the run); a
+            caller can point it at the run directory to keep the skills for
+            inspection. Ignored when the feature is off.
         search: An existing Search to fill in. Pass one and the caller keeps a
             reference to the archive as it grows, so a run that is stopped or
             crashes half way can still report what it had already scored — a
@@ -95,6 +106,12 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
     scored = on_scored or (lambda candidate, split, score: None)
     save_research = on_research or (lambda notes: None)
     search = search if search is not None else Search()
+
+    run_skills_dir = None
+    if cfg.designer.working_skills:
+        run_skills_dir = pathlib.Path(skills_dir) if skills_dir else pathlib.Path(
+            tempfile.mkdtemp(prefix="workflow_run_skills_"))
+        run_skills_dir.mkdir(parents=True, exist_ok=True)
 
     research_notes = ""
     if cfg.designer.research:
@@ -117,12 +134,14 @@ def optimize(cfg, benchmark: Benchmark, evaluator: Evaluator = None, log=print,
             {"event": "agent_cost", "round": round_num, "usd": usd, "turns": turns})
         for program in designer.run_design_round(cfg, benchmark, round_num, context,
                                                  log=log, on_cost=report_cost,
-                                                 research_notes=research_notes):
+                                                 research_notes=research_notes,
+                                                 run_skills_dir=run_skills_dir):
             if any(program["code"] == c.code for c in search.archive):   # skip exact repeats
                 continue
             candidate = Candidate(name=_unique_name(program["name"], search.archive),
                                   description=program.get("description", ""),
-                                  code=program["code"])
+                                  code=program["code"],
+                                  helpers=program.get("helpers", ""))
             candidate.dev = evaluator.run(candidate.program, benchmark.dev)
             scored(candidate, "dev", candidate.dev)
             search.archive.append(candidate)
