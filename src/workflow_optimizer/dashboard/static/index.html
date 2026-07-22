@@ -702,6 +702,7 @@ async function loadDetail() {
       if (sel.description) parts.push(`<div class="desc">${esc(sel.description)}</div>`);
       parts.push(`<div class="tabs">
         <span class="tab ${candView === "code" ? "on" : ""}" onclick="setCandView('code')">code</span>
+        <span class="tab ${candView === "diagram" ? "on" : ""}" onclick="setCandView('diagram')">diagram</span>
         <span class="tab ${candView === "dev" ? "on" : ""}" onclick="setCandView('dev')">dev calls</span>
         <span class="tab ${candView === "test" ? "on" : ""}" onclick="setCandView('test')">test calls</span>
       </div>`);
@@ -709,7 +710,7 @@ async function loadDetail() {
         parts.push(sel.code ? `<pre>${esc(sel.code.trim())}</pre>`
                             : `<div class="empty">code is written when the search finishes</div>`);
       } else {
-        parts.push(`<div id="trace">${traceHtml()}</div>`);
+        parts.push(`<div id="trace">${candView === "diagram" ? diagramHtml() : traceHtml()}</div>`);
       }
     }
   }
@@ -834,11 +835,82 @@ function toggleLog() { logLines = logLines > 400 ? 400 : 20000; loadDetail(); }
 // Every model call a candidate made, per example: the prompt in, the reply out.
 async function loadTrace() {
   if (!activeId || !selectedCandidate) return;
-  const url = `/api/trace/${encodeURIComponent(activeId)}?name=${encodeURIComponent(selectedCandidate)}&split=${candView}`;
+  const split = candView === "test" ? "test" : "dev";   // the diagram reads dev
+  const url = `/api/trace/${encodeURIComponent(activeId)}?name=${encodeURIComponent(selectedCandidate)}&split=${split}`;
   const data = await (await fetch(url)).json();
   traceCache = data.error ? {error: data.error} : data;
   const box = document.getElementById("trace");
-  if (box) { box.innerHTML = traceHtml(); makeResizable(box); }
+  if (box) {
+    box.innerHTML = candView === "diagram" ? diagramHtml() : traceHtml();
+    makeResizable(box);
+  }
+}
+
+// ---- the workflow, drawn from what it actually did ---------------------------
+// Structure inferred from code would be a guess; the traces are ground truth.
+// Each distinct sequence of model calls the workflow took on dev becomes one
+// row — so a router shows its branches with real frequencies, an escalator
+// shows how often it escalated, and each path carries its own score and cost.
+function modelHue(model) {
+  const m = String(model).toLowerCase();
+  return m.includes("haiku") ? "#86efac" : m.includes("sonnet") ? "#7dd3fc"
+       : m.includes("opus") ? "#c4b5fd" : "#8b95a7";
+}
+
+function diagramHtml() {
+  if (!traceCache) return `<div class="empty">loading calls…</div>`;
+  if (traceCache.error) {
+    return `<div class="empty">no dev calls recorded for this candidate yet —
+            the diagram is drawn from its traces</div>`;
+  }
+  const groups = {};
+  for (const r of traceCache.records || []) {
+    const key = r.calls.map(c => c.model).join("→") || "(no model calls)";
+    const g = groups[key] = groups[key] || {calls: r.calls.map(c => c.model),
+                                            n: 0, score: 0, cost: 0, errors: 0};
+    g.n += 1; g.score += r.score; g.cost += r.cost; g.errors += r.error ? 1 : 0;
+  }
+  const paths = Object.values(groups).sort((a, b) => b.n - a.n);
+  const total = paths.reduce((sum, g) => sum + g.n, 0);
+  if (!total) return `<div class="empty">no examples recorded</div>`;
+
+  const box = (model, times) => `<span style="border:1px solid ${modelHue(model)};
+      color:${modelHue(model)};border-radius:5px;padding:2px 8px;font-size:11px;
+      font-family:ui-monospace,Menlo,monospace;white-space:nowrap">${
+      esc(String(model).replace(/^claude-/, "").split("-")[0])}${times > 1 ? " ×" + times : ""}</span>`;
+  const arrow = `<span style="color:#5b667a">→</span>`;
+
+  const rows = paths.map(g => {
+    // Run-length compress consecutive same-model calls: S,S,S -> sonnet ×3,
+    // matching how the structural names read (S×3→vote).
+    const segments = [];
+    for (const model of g.calls) {
+      const last = segments[segments.length - 1];
+      if (last && last.model === model) last.times += 1;
+      else segments.push({model, times: 1});
+    }
+    const shown = segments.slice(0, 8);
+    const chain = g.calls.length
+      ? shown.map(s => box(s.model, s.times)).join(arrow)
+        + (segments.length > 8 ? arrow + `<span style="color:#7c8699;font-size:11px">+${segments.length - 8} more</span>` : "")
+      : `<span style="color:#7c8699;font-size:11px;font-style:italic">no model calls — pure code</span>`;
+    const share = g.n / total;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;
+        border-bottom:1px solid #1d242e;flex-wrap:wrap">
+      <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#dde3ef;
+        min-width:74px">×${g.n} <span style="color:#5b667a">(${(share * 100).toFixed(0)}%)</span></span>
+      <span style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;flex:1">${chain}</span>
+      <span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#8b95a7">
+        score ${(g.score / g.n).toFixed(2)} · ${usd(g.cost / g.n)}/q${
+        g.errors ? ` · <span class="warn">${g.errors} error${g.errors > 1 ? "s" : ""}</span>` : ""}</span>
+    </div>`;
+  }).join("");
+
+  return `<div class="desc">${total} dev example(s), ${paths.length} distinct call
+      path(s), most common first. Each row: how many examples took that sequence of
+      model calls, its mean score, and mean cost — a router's branches and an
+      escalator's escalation rate read directly off the rows.</div>
+    <div class="card">${rows}</div>`;
 }
 
 function traceHtml() {
