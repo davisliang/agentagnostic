@@ -525,6 +525,14 @@ async function startRun(ev) {
   return false;
 }
 
+// The continue card sits low in the page; the header button takes you there.
+function revealContinue() {
+  const card = document.getElementById("cont-card");
+  if (card) card.scrollIntoView({behavior: "smooth", block: "start"});
+  const nudge = document.getElementById("cont-guidance");
+  if (nudge) nudge.focus({preventScroll: true});
+}
+
 // The server runs on this machine, so it can hand the run's folder to Finder.
 async function openRunDir() {
   if (!activeId) return;
@@ -569,9 +577,13 @@ async function loadDetail() {
   parts.push(`<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h2 style="margin:0;text-transform:none;font-family:ui-monospace,Menlo,monospace;cursor:pointer"
           title="open runs/${esc(s.run_id)}/ in the file browser" onclick="openRunDir()"
-          >${esc(s.run_id)} <span style="font-size:12px;opacity:.75">📁</span></h2>
+          >${esc(s.run_id)} <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+            stroke="#7c8699" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            style="vertical-align:-1px"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2
+            2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></h2>
       <span class="pill ${esc(s.state)}">${esc(s.state === "running" ? s.phase : s.state)}</span>
-      ${s.state === "running" ? `<button class="danger" onclick="stopRun()">stop</button>` : ""}
+      ${s.state === "running" ? `<button class="danger" onclick="stopRun()">stop</button>`
+        : `<button onclick="revealContinue()" title="more design rounds on top of this run's archive">continue…</button>`}
     </div>`);
   if (s.error) parts.push(`<div class="err">${esc(s.error)}</div>`);
 
@@ -687,7 +699,7 @@ async function loadDetail() {
     if (answersSplit && (!answersData || answersData._split !== answersSplit)) refreshAnswers();
   }
   if (s.state !== "running") {
-    parts.push(`<h2>continue this search</h2><div class="card">
+    parts.push(`<h2 id="cont-card">continue this search</h2><div class="card">
       <div class="desc">Adds design rounds on top of everything above — the archive,
         research notes, working skills and the exact dev/test splits carry over, so new
         numbers stay comparable and carried test scores aren't paid for twice.</div>
