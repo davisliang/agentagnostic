@@ -437,17 +437,32 @@ def test_round_one_asks_for_diversity_and_later_rounds_extend_the_frontier(cfg):
 
 def test_tool_log_lines_say_what_the_tool_did():
     # "[tool] Bash" tells a reader nothing; the command is the content
+    import os as _os
     from workflow_optimizer.proposer import _tool_line
 
     bash = SimpleNamespace(name="Bash",
                            input={"command": "python eval_candidate.py c1.py\n",
                                   "description": "eval"})
     assert _tool_line(bash) == "  [tool] Bash: python eval_candidate.py c1.py"
+
+    # file tools carry the path and the size of what happened; the agent's own
+    # scratch prefix (this process's cwd) is stripped as noise
+    write = SimpleNamespace(name="Write", input={
+        "file_path": _os.path.join(_os.getcwd(), "cand_H.py"), "content": "x" * 1234})
+    assert _tool_line(write) == "  [tool] Write: cand_H.py (1234 chars)"
+    edit = SimpleNamespace(name="Edit", input={
+        "file_path": "cand_H.py", "old_string": "ab", "new_string": "abcd"})
+    assert _tool_line(edit) == "  [tool] Edit: cand_H.py (-2 +4 chars)"
     read = SimpleNamespace(name="Read", input={"file_path": "task_spec.json"})
     assert _tool_line(read) == "  [tool] Read: task_spec.json"
+
+    # a tool whose input has no string field still shows its arguments, as JSON
+    odd = SimpleNamespace(name="TodoWrite", input={"todos": [{"t": "step 1"}]})
+    assert '"step 1"' in _tool_line(odd)
     assert _tool_line(SimpleNamespace(name="X", input={})) == "  [tool] X"
+
     long = SimpleNamespace(name="Bash", input={"command": "x" * 500})
-    assert len(_tool_line(long)) < 200 and _tool_line(long).endswith("…")
+    assert len(_tool_line(long)) < 330 and _tool_line(long).endswith("…")
 
 
 def test_research_notes_are_handed_to_the_design_agent(cfg):

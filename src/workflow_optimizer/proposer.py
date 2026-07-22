@@ -14,35 +14,63 @@ import sys
 from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ResultMessage,
                               TextBlock, ToolUseBlock, query)
 
-# The input field worth echoing per tool call, tried in this order: a Bash call
-# is its command, a file tool is its path, a search is its query. Whatever hits
-# first is the one thing a reader wants on the line.
+# The input field worth echoing for tools not special-cased below, tried in this
+# order: a search is its query, a skill its name. Whatever hits first is the one
+# thing a reader wants on the line.
 _TOOL_DETAIL_KEYS = ("command", "file_path", "path", "query", "url", "pattern",
                      "skill", "description", "prompt")
+
+
+def _clip(text: str, n: int) -> str:
+    """Collapse text to one whitespace-normalized line of at most `n` chars."""
+    text = " ".join(str(text).split())
+    return text if len(text) <= n else text[:n] + "…"
 
 
 def _tool_line(block) -> str:
     """Render one tool call as a log line that says what the tool actually did.
 
     `[tool] Bash: python eval_candidate.py c1.py` reads; `[tool] Bash` doesn't.
+    The file tools get their own shapes — a Write is its path plus how much was
+    written, an Edit its path plus the size of the change — and paths are shown
+    relative to the agent's scratch directory (this process's cwd), because the
+    twelve identical temp-dir prefixes were burying the one part that differs.
+    Anything unrecognized falls back to its raw input as JSON, so a tool line is
+    never bare when the call had arguments at all.
 
     Args:
         block: A ToolUseBlock — its `input` dict holds the call's arguments.
 
     Returns:
-        The line, detail collapsed to one line and clipped. Just the name when
-        no input field matches.
+        The line, detail collapsed to one line and clipped.
     """
-    detail = ""
-    tool_input = getattr(block, "input", None) or {}
-    for key in _TOOL_DETAIL_KEYS:
-        value = tool_input.get(key)
-        if isinstance(value, str) and value.strip():
-            detail = " ".join(value.split())
-            break
-    if len(detail) > 160:
-        detail = detail[:160] + "…"
-    return f"  [tool] {block.name}" + (f": {detail}" if detail else "")
+    inp = getattr(block, "input", None) or {}
+    name = block.name
+    cwd = os.getcwd() + os.sep
+
+    def rel(path) -> str:
+        path = str(path or "")
+        return path[len(cwd):] if path.startswith(cwd) else path
+
+    if name == "Bash":
+        detail = _clip(inp.get("command", ""), 300)
+    elif name == "Write":
+        detail = f"{rel(inp.get('file_path'))} ({len(inp.get('content') or '')} chars)"
+    elif name == "Edit":
+        detail = (f"{rel(inp.get('file_path'))} "
+                  f"(-{len(inp.get('old_string') or '')} +{len(inp.get('new_string') or '')} chars)")
+    elif name == "Read":
+        detail = rel(inp.get("file_path"))
+    else:
+        detail = ""
+        for key in _TOOL_DETAIL_KEYS:
+            value = inp.get(key)
+            if isinstance(value, str) and value.strip():
+                detail = _clip(value, 240)
+                break
+        if not detail and inp:      # arguments of some other shape — show them raw
+            detail = _clip(json.dumps(inp, default=str), 200)
+    return f"  [tool] {name}" + (f": {detail}" if detail else "")
 
 
 async def main() -> None:
