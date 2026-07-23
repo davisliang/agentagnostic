@@ -603,10 +603,12 @@ async function loadDetail() {
     return `<span class="phase ${cls}">${esc(label)}</span>`;
   }).join("") + `</div>`);
 
+  const bestDev = cands.reduce((best, c) => Math.max(best, c.dev?.accuracy ?? -1), -1);
+  const bestTest = cands.reduce((best, c) => Math.max(best, c.test?.accuracy ?? -1), -1);
   parts.push(`<div class="grid4">
     ${stat("task", esc(s.task))}
-    ${stat("candidates", s.n_candidates || 0)}
-    ${stat("dev / test", `${s.n_dev || "—"} / ${s.n_test || "—"}`)}
+    ${stat("best dev / test acc", `${bestDev >= 0 ? acc(bestDev) : "—"} / ${bestTest >= 0 ? acc(bestTest) : "—"}`)}
+    ${stat("dev / test examples", `${s.n_dev || "—"} / ${s.n_test || "—"}`)}
     ${stat("elapsed", elapsed(s))}
   </div>`);
 
