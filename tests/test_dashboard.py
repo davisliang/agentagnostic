@@ -174,6 +174,26 @@ def test_researching_is_a_phase(a_run):
     assert runstore.PHASES.index("researching") < runstore.PHASES.index("designing")
 
 
+def test_deleting_a_run_is_permanent_but_never_touches_a_live_one(a_run):
+    import os
+    # "running" with a live process is refused — stop it first
+    runstore.update_status(a_run.run_id, pid=os.getpid())
+    assert "still going" in runstore.delete_run(a_run.run_id)["error"]
+    assert runstore.run_dir(a_run.run_id).exists()
+    # finished runs delete, directory and all
+    runstore.update_status(a_run.run_id, state="done")
+    assert runstore.delete_run(a_run.run_id)["ok"] is True
+    assert not runstore.run_dir(a_run.run_id).exists()
+    assert "unknown run" in runstore.delete_run(a_run.run_id)["error"]
+
+
+def test_deleting_cannot_reach_outside_runs():
+    # the id is a filesystem path, so the validation that guards reads guards this too
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        runstore.delete_run("../../etc")
+
+
 def test_stopping_a_finished_run_says_so(a_run):
     runstore.update_status(a_run.run_id, state="done")
     assert runstore.stop_run(a_run.run_id)["ok"] is False

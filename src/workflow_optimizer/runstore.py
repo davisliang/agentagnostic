@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import signal
 import time
 from dataclasses import asdict, dataclass
@@ -465,6 +466,28 @@ def stop_run(run_id: str) -> dict:
     update_status(run_id, state="stopped", phase="stopped", ended_at=time.time())
     append_event(run_id, {"event": "stopped"})
     return {"ok": True, "state": "stopped"}
+
+
+def delete_run(run_id: str) -> dict:
+    """Delete one run's directory, permanently.
+
+    A run's files are the only record of money already spent, so a run whose
+    process is still alive is refused — stop it first. The id is validated into
+    a plain directory name, so nothing outside `runs/` can be removed.
+
+    Args:
+        run_id: The run to delete.
+
+    Returns:
+        `{"ok": True}`, or `{"ok": False, "error": ...}`.
+    """
+    if not run_dir(run_id).exists():
+        return {"ok": False, "error": "unknown run"}
+    status = read_status(run_id)
+    if status and status.state == "running" and _process_alive(status.pid):
+        return {"ok": False, "error": "the run is still going — stop it first"}
+    shutil.rmtree(run_dir(run_id))
+    return {"ok": True}
 
 
 def _process_alive(pid: Optional[int]) -> bool:

@@ -154,6 +154,7 @@
   <aside id="runs">
     <button class="primary" style="width:100%;margin-bottom:10px" id="newbtn">+ new search</button>
     <div id="newslot"></div>
+    <div id="selbar"></div>
     <div id="runlist"><div class="empty">loading…</div></div>
   </aside>
   <section id="detail"><div class="empty">select a run, or start a new one</div></section>
@@ -171,6 +172,7 @@ let answersSplit = "", answersData = null;   // side-by-side answers, "" = close
 let frontierPoints = [], hoveringChart = false;   // hovering pauses the refresh
 let chartSplit = "test";   // which split the run-detail chart shows
 let hiddenRounds = new Set();   // design rounds toggled off in the run-detail chart
+let selectedRuns = new Set();   // runs ticked in the sidebar, for deletion
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const usd = n => n == null ? "—" : "$" + Number(n).toFixed(5);
@@ -191,21 +193,64 @@ function elapsed(s) {
 async function loadRuns() {
   const data = await (await fetch("/api/runs")).json();
   const runs = data.runs || [];
+  selectedRuns = new Set([...selectedRuns].filter(id => runs.some(r => r.run_id === id)));
   const live = runs.filter(r => r.state === "running").length;
   document.getElementById("summary").textContent =
     `${runs.length} run${runs.length === 1 ? "" : "s"}` + (live ? ` · ${live} running` : "");
+  document.getElementById("selbar").innerHTML = selectedRuns.size
+    ? `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <span style="font-size:11px;color:#8b95a7">${selectedRuns.size} selected</span>
+        <button class="danger" style="font-size:11px;padding:3px 10px"
+          onclick="deleteSelected()">delete</button>
+        <button style="font-size:11px;padding:3px 10px"
+          onclick="selectedRuns.clear();loadRuns()">clear</button></div>`
+    : "";
   document.getElementById("runlist").innerHTML =
     runs.length ? runs.map(runRow).join("") : `<div class="empty">no runs yet</div>`;
 }
 
 function runRow(r) {
   return `<div class="run ${r.run_id === activeId ? "active" : ""}" onclick="select('${esc(r.run_id)}')">
-    <div class="id">${esc(r.run_id)}</div>
+    <div class="id" style="display:flex;gap:7px;align-items:baseline">
+      <input type="checkbox" ${selectedRuns.has(r.run_id) ? "checked" : ""}
+        onclick="event.stopPropagation()" title="select for deletion"
+        onchange="toggleRunSelect('${esc(r.run_id)}', this.checked)"
+        style="width:auto;flex:none;margin:0">
+      <span>${esc(r.run_id)}</span></div>
     <div class="sub">
       <span class="pill ${esc(r.state)}">${esc(r.state === "running" ? r.phase : r.state)}</span>
       <span>${r.n_candidates || 0} cand</span>
       <span>${elapsed(r)}</span>
     </div></div>`;
+}
+
+function toggleRunSelect(id, on) {
+  if (on) selectedRuns.add(id); else selectedRuns.delete(id);
+  loadRuns();
+}
+
+// Deleting throws away the only record of money already spent, so it takes an
+// explicit confirm; the server refuses runs whose process is still alive.
+async function deleteSelected() {
+  const ids = [...selectedRuns];
+  if (!ids.length) return;
+  if (!confirm(`Permanently delete ${ids.length} run(s)?\n\nThis removes their configs, `
+      + `traces, results and logs — the record of money already spent. It cannot be undone.`)) return;
+  const failed = [];
+  for (const id of ids) {
+    const res = await (await fetch(`/api/run/${encodeURIComponent(id)}/delete`,
+                                   {method: "POST"})).json();
+    if (res.ok) {
+      selectedRuns.delete(id);
+      if (activeId === id) activeId = null;
+    } else {
+      failed.push(`${id}: ${res.error || "could not delete"}`);
+    }
+  }
+  if (failed.length) alert("Not deleted:\n" + failed.join("\n"));
+  if (!activeId) document.getElementById("detail").innerHTML =
+    `<div class="empty">select a run, or start a new one</div>`;
+  tick();
 }
 
 // ---- new search form --------------------------------------------------------

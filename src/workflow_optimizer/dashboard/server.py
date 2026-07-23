@@ -755,6 +755,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "bad run id"}, code=400)
                 result = open_run_dir(run_id)
                 return self._json(result, code=200 if result.get("ok") else 400)
+            if path.startswith("/api/run/") and path.endswith("/delete"):
+                run_id = path[len("/api/run/"):-len("/delete")]
+                if not runstore.is_valid_run_id(run_id):
+                    return self._json({"error": "bad run id"}, code=400)
+                result = runstore.delete_run(run_id)
+                return self._json(result, code=200 if result.get("ok") else 400)
             self.send_error(404, "Not Found")
         except Exception as error:
             self._json({"error": str(error)}, code=500)
