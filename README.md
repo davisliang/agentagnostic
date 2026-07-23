@@ -63,12 +63,21 @@ searches, watches them run, and compares what they found:
   research notes, working skills and the exact dev/test splits carry over
   (the benchmark is saved with the run, so generated data is never re-generated),
   and carried test scores aren't paid for twice.
-- **Every input and output** — pick a candidate, then **dev calls** / **test
-  calls**: per example, its score, what the workflow returned, the gold answer,
-  and each model call in order with the full prompt sent, the reply received, the
-  model, the cost and the token split. This is how you tell "the strategy is
-  wrong" from "the model got that one wrong". Prompts and replies over 8k chars
-  are clipped, with the full length shown.
+- **Reading a run** — a convergence chart (best dev accuracy after each round;
+  a flat segment says that round bought nothing, which is the continue-or-stop
+  signal), a spend bar splitting the money between the research agent, the
+  design agent, and dev/test scoring, and round toggles on the accuracy/cost
+  chart so a continuation's carried archive and each round's additions can be
+  read separately.
+- **Every input and output** — pick a candidate, then its **diagram** — the
+  workflow drawn from its traces, one row per distinct sequence of model calls
+  with its frequency, mean score and cost, so a router's branch rates and an
+  escalator's escalation rate read directly off the rows — or **dev calls** /
+  **test calls**: per example, its score, what the workflow returned, the gold
+  answer, and each model call in order with the full prompt sent, the reply
+  received, the model, the cost and the token split. This is how you tell "the
+  strategy is wrong" from "the model got that one wrong". Prompts and replies
+  over 8k chars are clipped, with the full length shown.
 - **Same example, every workflow** — a matrix lining up every candidate's answer
   to the same question side by side, most-disagreed-on examples first. Accuracy
   says which workflow won; this says where they differed and whether the
@@ -82,8 +91,10 @@ searches, watches them run, and compares what they found:
   haiku / opus / router / oracle accuracies are drawn as reference lines.
 
 Runs live in `runs/<run_id>/` — the resolved config, a status header, an
-append-only event log, the raw log, the research notes, per-candidate call
-traces, and the result.
+append-only event log, the raw log, the research notes, the saved benchmark
+(the exact splits, so a continuation scores the same data), per-candidate call
+traces, the run's working skills, and the result. Clicking the run's name in
+the UI opens this folder in the file browser.
 The server holds no state of its own: it reads those files, and each search runs
 in its own subprocess. Restart the server mid-search and the page picks up where
 it was.
