@@ -53,7 +53,7 @@
   h2 { font-size:13px; color:#7dd3fc; margin:18px 0 8px; text-transform:uppercase;
        letter-spacing:.5px; font-weight:600; }
   .card { background:#161b22; border:1px solid #2a313c; border-radius:6px; padding:10px 12px; }
-  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .grid4 { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .stat { font-size:17px; color:#dde3ef; }
   .stat .lbl { font-size:10px; color:#7c8699; text-transform:uppercase; letter-spacing:.5px; margin-bottom:3px; }
 
@@ -605,9 +605,11 @@ async function loadDetail() {
 
   const bestDev = cands.reduce((best, c) => Math.max(best, c.dev?.accuracy ?? -1), -1);
   const bestTest = cands.reduce((best, c) => Math.max(best, c.test?.accuracy ?? -1), -1);
+  const runSpend = spendParts(d).reduce((sum, [, v]) => sum + v, 0);
   parts.push(`<div class="grid4">
     ${stat("task", esc(s.task))}
     ${stat("best dev / test acc", `${bestDev >= 0 ? acc(bestDev) : "—"} / ${bestTest >= 0 ? acc(bestTest) : "—"}`)}
+    ${stat("spend", runSpend ? "$" + runSpend.toFixed(2) : "—")}
     ${stat("dev / test examples", `${s.n_dev || "—"} / ${s.n_test || "—"}`)}
     ${stat("elapsed", elapsed(s))}
   </div>`);
@@ -1099,7 +1101,7 @@ function convergenceSvg(events) {
 // round-0 agent_cost) plus candidate scoring. Task analysis, data generation,
 // and judge calls aren't metered into events, so they are named as not shown
 // rather than silently omitted.
-function spendHtml(d) {
+function spendParts(d) {
   const status = d.status || {};
   let research = 0, design = 0, dev = 0, test = 0;
   for (const e of d.events || []) {
@@ -1111,9 +1113,13 @@ function spendHtml(d) {
       test += (e.test_cost || 0) * (status.n_test || 0);
     }
   }
-  const parts = [["research agent", research, "#7dd3fc"], ["design agent", design, "#c4b5fd"],
-                 ["dev scoring", dev, "#86efac"], ["test scoring", test, "#fbbf24"]]
+  return [["research agent", research, "#7dd3fc"], ["design agent", design, "#c4b5fd"],
+          ["dev scoring", dev, "#86efac"], ["test scoring", test, "#fbbf24"]]
     .filter(([, v]) => v > 0);
+}
+
+function spendHtml(d) {
+  const parts = spendParts(d);
   const total = parts.reduce((sum, [, v]) => sum + v, 0);
   if (!total) return "";
   const bar = parts.map(([name, v, color]) =>
