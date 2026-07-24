@@ -405,6 +405,24 @@ def test_allocated_holdout_examples_become_the_test_split():
     assert len(train) == 2 and len(dev) == 10
 
 
+def test_each_partition_draws_only_from_its_allocated_counterpart():
+    """With a full routerllm allocation, our train samples their train, dev
+    their val, test their test — an example never crosses a partition."""
+    cfg = load_config("gsm8k", ["data.n_train=3", "data.n_dev=4", "data.n_test=5"])
+    data = ([{"question": f"tr{i}", "answer": "x", "split": "train"} for i in range(50)]
+            + [{"question": f"v{i}", "answer": "x", "split": "val"} for i in range(10)]
+            + [{"question": f"te{i}", "answer": "x", "split": "test"} for i in range(8)])
+    train, dev, test = analysis.split_examples(cfg, data, log=lambda *a: None)
+    assert (len(train), len(dev), len(test)) == (3, 4, 5)
+    assert all(r["split"] == "train" for r in train)
+    assert all(r["split"] == "val" for r in dev)
+    assert all(r["split"] == "test" for r in test)
+    # blank sizes take each partition whole, still never crossing
+    cfg = load_config("gsm8k", ["data.n_train=3"])
+    train, dev, test = analysis.split_examples(cfg, data, log=lambda *a: None)
+    assert (len(dev), len(test)) == (10, 8)
+
+
 def test_too_few_examples_raise_instead_of_an_empty_split():
     cfg = load_config("gsm8k")
     with pytest.raises(ValueError):

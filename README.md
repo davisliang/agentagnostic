@@ -122,13 +122,16 @@ yaml records `sampled_from`, so the sampling is never silent. Baselines are
 **recomputed** from routerllm's `joined_14.jsonl` rather than copied, which is
 checkable: the import reproduces ifeval's known 0.848 / 0.891 / 0.848 / 0.957.
 
-Where routerllm allocated a **holdout** (the examples its baselines were measured
-on), the import labels those rows and the optimizer uses exactly them as its test
-split — so a test score and the recorded baselines are computed on the same
-examples. Coverage is stated per benchmark (`holdout_in_data`): full for
-gpqa_diamond_gen and the AIME sets, partial where the export was itself a sample,
-zero where its doc ids could not be matched (mmlu_pro, bbeh_gen, minerva_math —
-those fall back to a random split).
+The import labels every row with routerllm's own **80/10/10 train/val/test
+partition** — `split.json` (the router-dataset wandb artifact, pulled into the
+routerllm checkout) keys by prompt hash, and the paired dataset joins that hash
+to the doc ids the exports use. The optimizer then draws each of its splits
+ONLY from the matching partition: train from their train, dev from their val,
+and test from their test — the holdout the recorded baselines were measured on
+— so no example ever crosses a partition boundary and a test score is computed
+on the same examples as the baselines. Coverage is stated per benchmark
+(`split_labeled`, `holdout_in_data`); it is partial where the export was itself
+a sample of the full task.
 
 Grading is mapped onto ours where it can be: `exact` → exact match, `contains` →
 `benchmarks/_graders/contains.py`, `grid` → `benchmarks/_graders/grid.py` (both

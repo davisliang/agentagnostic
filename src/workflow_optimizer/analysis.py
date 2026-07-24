@@ -77,10 +77,13 @@ def split_examples(cfg, data: list[dict], log=print) -> tuple[list, list, list]:
     (self-tests, few-shot material), so nothing the agent tunes against is ever
     scored. Dev guides the search; test is held out for the final ranking.
 
-    Examples carrying `"split": "test"` are an external allocation — routerllm's
-    holdout, where its baselines were measured — and become the test pool, so
-    our test numbers are computed on the same examples as the baselines they
-    are compared against. Without labels the split is random. Either way the
+    Examples carrying `"split"` labels are an external allocation — routerllm's
+    own 80/10/10 partition. Each of our splits then draws ONLY from its
+    counterpart: train from their train, dev from their val, test from their
+    test (the holdout its baselines were measured on), so no example ever
+    crosses a partition boundary and test numbers are computed on the same
+    examples as the baselines. With only test labels, train/dev draw from the
+    unlabeled rest; with no labels the split is random. Either way the
     sampling is seeded, so two runs at the same sizes score the same examples.
 
     Sizes come from `cfg.data`: `n_train` always; `n_dev`/`n_test` when both
@@ -103,9 +106,33 @@ def split_examples(cfg, data: list[dict], log=print) -> tuple[list, list, list]:
     rng = random.Random(0)
 
     allocated = [r for r in data if r.get("split") in ("test", "holdout")]
-    pool = [r for r in data if r.get("split") not in ("test", "holdout")]
+    allocated_train = [r for r in data if r.get("split") == "train"]
+    allocated_val = [r for r in data if r.get("split") == "val"]
+    pool = [r for r in data if r.get("split") not in ("test", "holdout", "train", "val")]
 
-    if allocated:
+    def pick(part: list, n: int) -> list:
+        """A seeded sample of `n` from one partition; n<=0 or n>=len takes all."""
+        part = sorted(part, key=lambda r: r["question"])
+        return part if n <= 0 or n >= len(part) else rng.sample(part, n)
+
+    if allocated_train or allocated_val:
+        # A full routerllm allocation: our test = their test, our dev samples
+        # their val, our train samples their train — each partition drawn from
+        # the partition routerllm assigned it, never across.
+        test = pick(allocated, n_test)
+        train_pool = allocated_train + pool
+        if allocated_val:
+            dev = pick(allocated_val, n_dev)
+        else:                      # allocation without val rows in this export
+            rng.shuffle(train_pool)
+            cut = max(1, n_dev or int(len(train_pool) * cfg.data.dev_fraction))
+            dev, train_pool = train_pool[:cut], train_pool[cut:]
+        train = pick(train_pool, n_train) if n_train > 0 else []
+        log(f"splits drawn from routerllm's allocation: "
+            f"{len(train)} of {len(train_pool)} train, "
+            f"{len(dev)} of {len(allocated_val) or len(dev)} val->dev, "
+            f"{len(test)} of {len(allocated)} test")
+    elif allocated:
         test = (sorted(allocated, key=lambda r: r["question"]) if n_test <= 0
                 or n_test >= len(allocated)
                 else rng.sample(allocated, n_test))

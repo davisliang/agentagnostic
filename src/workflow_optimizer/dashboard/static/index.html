@@ -263,11 +263,11 @@ function newRunForm() {
     <form class="newrun" onsubmit="return startRun(event)" oninput="scheduleEstimate()">
       <div class="full" id="f-source"></div>
       <div><label>design rounds</label><input id="f-rounds" type="number" min="1" max="10" value="2"></div>
-      <div><label title="Examples the design agent may see and self-test on — disjoint from dev and test">train examples ⓘ</label>
+      <div><label title="Examples the design agent may see and self-test on — disjoint from dev and test. Benchmarks with a routerllm allocation draw these from its train partition">train examples ⓘ</label>
         <input id="f-train" type="number" min="0" max="50" placeholder="5"></div>
-      <div><label title="Scored during the search; guides candidate selection. Blank splits the task's example pool by the configured fraction">dev examples ⓘ</label>
+      <div><label title="Scored during the search; guides candidate selection. Benchmarks with a routerllm allocation draw these from its val partition; blank takes the whole partition (or splits the pool by fraction)">dev examples ⓘ</label>
         <input id="f-dev" type="number" min="1" max="500" placeholder="auto"></div>
-      <div><label title="Held out for the final ranking only. Benchmarks with a routerllm holdout allocation draw test from it">test examples ⓘ</label>
+      <div><label title="Held out for the final ranking only. Benchmarks with a routerllm allocation draw these from its test partition — the holdout the baselines were measured on">test examples ⓘ</label>
         <input id="f-test" type="number" min="1" max="500" placeholder="auto"></div>
       <div><label>concurrency</label><input id="f-concurrency" type="number" min="1" max="32" value="8"></div>
       <div><label title="Which workflow gets recommended, and the target the designer aims at. It does not cap what the search spends.">budget $/query <span style="color:#5b667a">ⓘ</span></label>

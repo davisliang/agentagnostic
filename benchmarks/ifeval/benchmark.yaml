@@ -14,6 +14,11 @@ grading_supported: true
 # baselines were measured on. Partial coverage means the export was itself
 # a sample; zero means the export's doc_ids could not be matched.
 holdout_in_data: 17 of 46
+# Rows labeled train/val carry routerllm's own 80/10/10 partition (via
+# split.json): the optimizer draws its train split from train-labeled rows
+# and its dev split from val-labeled rows, so no example crosses a
+# partition boundary.
+split_labeled: 162 train / 21 val / 17 test
 grading_note: lm-eval's own constraint checker; needs the routerllm checkout
 check_type: exact
 grader: experiments/routerllm_ifeval/grader.py

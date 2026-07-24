@@ -4,7 +4,7 @@ description: >-
   Solve a MATH competition problem. The answer is a mathematical expression or number, compared for mathematical equivalence.
 source_dataset: EleutherAI/hendrycks_math
 num_fewshot: 4
-examples: 200
+examples: 338
 sampled_from: 1400   # random.Random(0).sample
 routerllm_grader: exact
 grading_supported: true
@@ -13,7 +13,12 @@ grading_supported: true
 # optimizer uses exactly those as its test split — the same examples the
 # baselines were measured on. Partial coverage means the export was itself
 # a sample; zero means the export's doc_ids could not be matched.
-holdout_in_data: 0 of 516
+holdout_in_data: 138 of 516
+# Rows labeled train/val carry routerllm's own 80/10/10 partition (via
+# split.json): the optimizer draws its train split from train-labeled rows
+# and its dev split from val-labeled rows, so no example crosses a
+# partition boundary.
+split_labeled: 171 train / 29 val / 138 test
 check_type: exact
 # routerllm's holdout numbers, recomputed from joined_14.jsonl.
 # Comparable only if graded the same way — see grading_note.

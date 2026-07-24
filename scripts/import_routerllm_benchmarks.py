@@ -149,6 +149,41 @@ def in_holdout(holdout: dict, task: str, row: dict) -> bool:
     return row["doc_id"] in holdout.get(key, set()) or row["doc_id"] in holdout.get(task, set())
 
 
+def load_split_labels(split_path: pathlib.Path, paired: pathlib.Path) -> dict:
+    """Map every export row to its routerllm partition (train / val / test).
+
+    `split.json` keys by `(task, prompt_hash)`; the exports carry neither. The
+    paired dataset has BOTH the hash and the `(task, subtask, doc_id)` the
+    export numbering matches, so one streamed pass joins them. Rows this cannot
+    label (three tasks' exports renumbered doc_ids) stay unlabeled and fall
+    back to the holdout doc-id join for test, or a random split.
+
+    Args:
+        split_path: routerllm's `router_data/split.json` (the wandb artifact).
+        paired: `router_haiku_opus.jsonl` — streamed, not loaded.
+
+    Returns:
+        `{(task_key, doc_id): "train"|"val"|"test"}`, empty if either file is
+        missing.
+    """
+    if not split_path.exists() or not paired.exists():
+        return {}
+    part_of = {key: part
+               for part, keys in json.loads(split_path.read_text()).items()
+               for key in keys}
+    labels = {}
+    with open(paired) as f:
+        for line in f:
+            row = json.loads(line)
+            part = part_of.get(f"{row['task']}\t{row['prompt_hash']}")
+            if part is None:
+                continue
+            key = (f"{row['task']}_{row['subtask']}" if row.get("subtask")
+                   else row["task"])
+            labels[(key, row["doc_id"])] = part
+    return labels
+
+
 def compute_baselines(joined: pathlib.Path, threshold: float = 0.5) -> dict:
     """Recompute routerllm's four reference accuracies per task.
 
@@ -204,6 +239,11 @@ def main() -> int:
 
     baselines = compute_baselines(pathlib.Path(args.routerllm) / "router_runs" / "joined_14.jsonl")
     holdout = load_holdout(pathlib.Path(args.routerllm) / "router_runs" / "holdout14_doc_ids.json")
+    labels = load_split_labels(
+        pathlib.Path(args.routerllm) / "router_data" / "split.json",
+        pathlib.Path(args.paired) / "router_data" / "router_haiku_opus.jsonl")
+    print(f"{len(labels)} rows carry a routerllm train/val/test label" if labels
+          else "no split.json — labeling test from the holdout doc ids only")
     out_root = ROOT / "benchmarks"
     out_root.mkdir(exist_ok=True)
     written = []
@@ -221,20 +261,32 @@ def main() -> int:
         mapping = NATIVE[name] if name in NATIVE else GRADERS.get(grader_kind, GRADERS["exact"])
         supported = mapping["check_type"] is not None
 
-        # Rows in routerllm's holdout allocation are ALWAYS kept and labeled as
-        # the test split — that is where the baselines were measured, and a test
-        # number computed on other examples would not be comparable to them.
-        held = [r for r in rows if in_holdout(holdout, name, r)]
-        pool = [r for r in rows if not in_holdout(holdout, name, r)]
+        # Label each row with its routerllm partition: split.json (joined via
+        # the paired dataset) gives train/val/test; the holdout doc-id join
+        # backs up test where split.json can't reach. Test rows are ALWAYS
+        # kept — that is where the baselines were measured, and a test number
+        # computed on other examples would not be comparable to them.
+        for r in rows:
+            key = f"{name}_{r['subtask']}" if r.get("subtask") else name
+            part = labels.get((key, r["doc_id"]))
+            if part is None and in_holdout(holdout, name, r):
+                part = "test"
+            if part:
+                r["split"] = part
+        held = [r for r in rows if r.get("split") == "test"]
+        pool = [r for r in rows if r.get("split") != "test"]
         n_holdout_allocated = sum(len(ids) for key, ids in holdout.items()
                                   if key == name or key.startswith(name + "_"))
 
         # A benchmark we cannot grade is kept only as a sample, for reference —
         # humaneval's answers are whole test harnesses and run to megabytes.
+        # The limit caps the train/dev POOL; test rows are kept whole on top of
+        # it (a holdout larger than the limit — bbeh's 417 — must not squeeze
+        # the pool to nothing, or the task has no dev split to search with).
         limit = args.limit if supported else min(args.limit or 20, 20)
-        if limit and len(held) + len(pool) > limit:
-            pool = random.Random(args.seed).sample(pool, max(0, limit - len(held)))
-        rows = ([{**r, "split": "test"} for r in held] + pool) if held else pool
+        if limit and len(pool) > limit:
+            pool = random.Random(args.seed).sample(pool, limit)
+        rows = held + pool
 
         target = out_root / name
         target.mkdir(exist_ok=True)
@@ -260,7 +312,9 @@ def main() -> int:
             name=name, meta=meta, kept=len(rows), total=total, seed=args.seed,
             grader_kind=grader_kind, mapping=mapping, supported=supported,
             baseline=baselines.get(name),
-            holdout_kept=len(held), holdout_allocated=n_holdout_allocated))
+            holdout_kept=len(held), holdout_allocated=n_holdout_allocated,
+            n_train_labeled=sum(1 for r in rows if r.get("split") == "train"),
+            n_val_labeled=sum(1 for r in rows if r.get("split") == "val")))
 
         # Never overwrite a task config that already exists — several are tuned
         # by hand (ifeval carries a tighter per-query budget and its own answer
@@ -273,15 +327,18 @@ def main() -> int:
             else:
                 task_file.write_text(_task_yaml(name, mapping))
         written.append((name, len(rows), total, grader_kind, supported, kept_existing,
-                        len(held), n_holdout_allocated))
+                        len(held), n_holdout_allocated,
+                        sum(1 for r in rows if r.get("split") == "train"),
+                        sum(1 for r in rows if r.get("split") == "val")))
 
     print(f"{len(written)} benchmarks -> {out_root}")
-    for name, kept, total, grader_kind, supported, kept_existing, held_n, alloc_n in written:
+    for name, kept, total, grader_kind, supported, kept_existing, held_n, alloc_n, tr_n, val_n in written:
         mark = " " if supported else "!"
         note = ("" if supported else "  (data only — grading unsupported)")
         if kept_existing:
             note = "  (kept the existing hand-written config/task/%s.yaml)" % name
-        hold = f"  holdout {held_n}/{alloc_n}" if alloc_n else ""
+        hold = (f"  t/v/h {tr_n}/{val_n}/{held_n} (holdout {held_n}/{alloc_n})"
+                if (tr_n or val_n) else f"  holdout {held_n}/{alloc_n}" if alloc_n else "")
         print(f" {mark} {name:22s} {kept:>5}/{total:<5} {grader_kind}{hold}{note}")
     return 0
 
@@ -307,7 +364,8 @@ def _read_yaml_ish(path: pathlib.Path) -> dict:
 
 
 def _benchmark_yaml(name, meta, kept, total, seed, grader_kind, mapping, supported,
-                    baseline, holdout_kept=0, holdout_allocated=0) -> str:
+                    baseline, holdout_kept=0, holdout_allocated=0,
+                    n_train_labeled=0, n_val_labeled=0) -> str:
     """Render one benchmark's metadata file. See `main` for the arguments."""
     lines = [
         f"# {name} — imported from routerllm by scripts/import_routerllm_benchmarks.py",
@@ -329,6 +387,14 @@ def _benchmark_yaml(name, meta, kept, total, seed, grader_kind, mapping, support
             "# baselines were measured on. Partial coverage means the export was itself",
             "# a sample; zero means the export's doc_ids could not be matched.",
             f"holdout_in_data: {holdout_kept} of {holdout_allocated}",
+        ]
+    if n_train_labeled or n_val_labeled:
+        lines += [
+            "# Rows labeled train/val carry routerllm's own 80/10/10 partition (via",
+            "# split.json): the optimizer draws its train split from train-labeled rows",
+            "# and its dev split from val-labeled rows, so no example crosses a",
+            "# partition boundary.",
+            f"split_labeled: {n_train_labeled} train / {n_val_labeled} val / {holdout_kept} test",
         ]
     if mapping.get("note"):
         lines.append(f"grading_note: {mapping['note']}")
