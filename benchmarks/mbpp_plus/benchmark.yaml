@@ -8,6 +8,12 @@ examples: 20
 sampled_from: 200   # random.Random(0).sample
 routerllm_grader: native
 grading_supported: false
+# routerllm allocated a holdout for this task; the rows below labeled
+# "split": "test" are the holdout examples present in the export, and the
+# optimizer uses exactly those as its test split — the same examples the
+# baselines were measured on. Partial coverage means the export was itself
+# a sample; zero means the export's doc_ids could not be matched.
+holdout_in_data: 11 of 24
 grading_note: pass@1 by executing tests — no sandboxed harness here
 # routerllm's holdout numbers, recomputed from joined_14.jsonl.
 # Comparable only if graded the same way — see grading_note.

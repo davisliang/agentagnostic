@@ -187,16 +187,25 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
         return fallback
 
     rounds = int(cfg.designer.rounds)
-    # What will actually be scored, which is not always what was asked for: a
-    # supplied dataset may hold fewer examples than the setting requests.
-    n_examples = int(cfg.data.n_examples)
-    if available is not None:
-        n_examples = min(n_examples, available) if n_examples > 0 else available
-        if available < int(cfg.data.n_examples):
-            notes.append(f"the dataset has {available} examples, fewer than the "
-                         f"{int(cfg.data.n_examples)} requested")
-    dev = max(1, int(n_examples * float(cfg.data.dev_fraction)))
-    test = max(1, n_examples - dev)
+    n_train = max(0, int(cfg.data.n_train))
+    explicit = int(cfg.data.n_dev) > 0 and int(cfg.data.n_test) > 0
+    if explicit:
+        dev, test = int(cfg.data.n_dev), int(cfg.data.n_test)
+        n_examples = n_train + dev + test
+        notes.append(f"explicit split sizes: {n_train} train / {dev} dev / {test} test")
+    else:
+        # What will actually be scored, which is not always what was asked for:
+        # a supplied dataset may hold fewer examples than the setting requests.
+        n_examples = int(cfg.data.n_examples)
+        if available is not None:
+            n_examples = min(n_examples, available) if n_examples > 0 else available
+            if available < int(cfg.data.n_examples):
+                notes.append(f"the dataset has {available} examples, fewer than the "
+                             f"{int(cfg.data.n_examples)} requested")
+        # train is carved out first; dev and test split the remainder
+        pool = max(2, n_examples - n_train)
+        dev = max(1, int(pool * float(cfg.data.dev_fraction)))
+        test = max(1, pool - dev)
 
     if generates_data is None:
         generates_data = not cfg.task.dataset
@@ -241,9 +250,8 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
     notes.append(f"dev split {dev} of {n_examples} examples "
                  f"(dev_fraction {cfg.data.dev_fraction})")
 
-    # the agent tests its own candidates against a sample while iterating
-    breakdown["agent self-tests"] = (total_candidates * int(cfg.designer.dev_sample_size)
-                                     * per_query)
+    # the agent tests its own candidates against the train split while iterating
+    breakdown["agent self-tests"] = total_candidates * n_train * per_query
 
     # 4. the frontier on test — only the non-dominated candidates get there
     finalists = max(1.0, min(total_candidates, 3.0))

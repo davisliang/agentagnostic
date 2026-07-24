@@ -363,6 +363,54 @@ def test_a_missing_prompt_variable_is_an_error_not_a_blank():
         prompts.render("judge", task="t")
 
 
+# ---- the train / dev / test split -------------------------------------------
+def many(n, prefix="q"):
+    return [{"question": f"{prefix}{i}", "answer": str(i)} for i in range(n)]
+
+
+def test_the_split_is_three_way_and_disjoint():
+    cfg = load_config("gsm8k", ["data.n_examples=40", "data.n_train=5"])
+    train, dev, test = analysis.split_examples(cfg, many(100), log=lambda *a: None)
+    assert len(train) == 5
+    assert len(train) + len(dev) + len(test) == 40
+    questions = [r["question"] for r in train + dev + test]
+    assert len(questions) == len(set(questions))          # disjoint — nothing shared
+
+
+def test_explicit_split_sizes_win_over_the_fraction():
+    cfg = load_config("gsm8k", ["data.n_train=3", "data.n_dev=10", "data.n_test=7"])
+    train, dev, test = analysis.split_examples(cfg, many(100), log=lambda *a: None)
+    assert (len(train), len(dev), len(test)) == (3, 10, 7)
+
+
+def test_the_split_is_deterministic():
+    cfg = load_config("gsm8k", ["data.n_examples=30"])
+    first = analysis.split_examples(cfg, many(100), log=lambda *a: None)
+    second = analysis.split_examples(cfg, many(100), log=lambda *a: None)
+    assert [[r["question"] for r in part] for part in first] == \
+           [[r["question"] for r in part] for part in second]
+
+
+def test_allocated_holdout_examples_become_the_test_split():
+    """routerllm's baselines were measured on its holdout; rows labeled
+    split=test are that allocation, and OUR test split must be exactly them —
+    otherwise a comparison against the recorded baselines compares different
+    examples."""
+    cfg = load_config("gsm8k", ["data.n_examples=20", "data.n_train=2"])
+    data = many(50) + [{"question": f"h{i}", "answer": "x", "split": "test"} for i in range(8)]
+    train, dev, test = analysis.split_examples(cfg, data, log=lambda *a: None)
+    assert sorted(r["question"] for r in test) == [f"h{i}" for i in range(8)]
+    assert all(not r["question"].startswith("h") for r in train + dev)
+    # n_examples budgets the whole pool: 20 total - 8 allocated test - 2 train
+    assert len(train) == 2 and len(dev) == 10
+
+
+def test_too_few_examples_raise_instead_of_an_empty_split():
+    cfg = load_config("gsm8k")
+    with pytest.raises(ValueError):
+        analysis.split_examples(cfg, many(1), log=lambda *a: None)
+
+
 # ---- what the design agent is handed ----------------------------------------
 def benchmark_fixture():
     analysis = TaskAnalysis(description="Add two numbers.", check_type="numeric",
@@ -371,9 +419,19 @@ def benchmark_fixture():
 
 
 def test_the_agent_dir_has_everything_the_eval_skill_reads(cfg, tmp_path):
-    _stage_agent_dir(cfg, benchmark_fixture(), tmp_path)
+    benchmark = benchmark_fixture()
+    benchmark.train = [{"question": "add 1 and 1", "answer": "2"}]
+    _stage_agent_dir(cfg, benchmark, tmp_path)
     assert json.loads((tmp_path / "task_spec.json").read_text())["check"]["type"] == "numeric"
-    assert json.loads((tmp_path / "dev_task.json").read_text()) == DATA
+    # the agent self-tests on TRAIN — dev stays unseen so its scores are honest
+    assert json.loads((tmp_path / "train_task.json").read_text()) == benchmark.train
+
+
+def test_an_old_benchmark_without_train_falls_back_to_a_dev_sample(cfg, tmp_path):
+    # continuations of runs saved before the train split existed still stage
+    # something for the agent to self-test on — the old behavior, leak and all
+    _stage_agent_dir(cfg, benchmark_fixture(), tmp_path)   # fixture has no train
+    assert json.loads((tmp_path / "train_task.json").read_text()) == DATA
     for skill in cfg.designer.skills:
         assert (tmp_path / ".claude" / "skills" / skill / "SKILL.md").exists()
     # the staged config round-trips, so the agent meters candidates as the search does

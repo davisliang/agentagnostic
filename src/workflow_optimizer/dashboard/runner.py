@@ -96,7 +96,9 @@ def main(run_id: str) -> int:
             "description": benchmark.description, "judge_status": benchmark.judge_status,
             "rubric": benchmark.grader.rubric,
             "answer_examples": list(benchmark.analysis.answer_examples),
+            "train_sample": benchmark.train[:3],
             "dev_sample": benchmark.dev[:3], "test_sample": benchmark.test[:3],
+            "n_train": len(benchmark.train),
             "n_dev": len(benchmark.dev), "n_test": len(benchmark.test)})
         # Carried candidates appear in the UI from the start, marked round 0.
         for candidate in search.archive:

@@ -114,6 +114,41 @@ def load_extra_fields(paired: pathlib.Path, task: str, fields: list[str]) -> dic
     return extra
 
 
+def load_holdout(path: pathlib.Path) -> dict:
+    """Load routerllm's holdout allocation — the examples its baselines used.
+
+    Keys are the task name, or `task_subtask` for subtask-split tasks; values
+    are doc_id lists. Rows of the export that match become our TEST split, so
+    our test numbers are measured on the same examples as the baselines they
+    are compared against. Some tasks cannot be matched (their export renumbered
+    doc_ids); coverage is reported per benchmark, never assumed.
+
+    Args:
+        path: Path to `holdout14_doc_ids.json`.
+
+    Returns:
+        `{key: set(doc_ids)}`, empty if the file is missing.
+    """
+    if not path.exists():
+        return {}
+    return {key: set(ids) for key, ids in json.loads(path.read_text()).items()}
+
+
+def in_holdout(holdout: dict, task: str, row: dict) -> bool:
+    """Check whether one export row is in routerllm's holdout allocation.
+
+    Args:
+        holdout: `load_holdout` output.
+        task: The benchmark's name.
+        row: One export row, with `doc_id` and possibly `subtask`.
+
+    Returns:
+        True when the row's doc_id appears under the task's (subtask-aware) key.
+    """
+    key = f"{task}_{row['subtask']}" if row.get("subtask") else task
+    return row["doc_id"] in holdout.get(key, set()) or row["doc_id"] in holdout.get(task, set())
+
+
 def compute_baselines(joined: pathlib.Path, threshold: float = 0.5) -> dict:
     """Recompute routerllm's four reference accuracies per task.
 
@@ -168,6 +203,7 @@ def main() -> int:
         return 1
 
     baselines = compute_baselines(pathlib.Path(args.routerllm) / "router_runs" / "joined_14.jsonl")
+    holdout = load_holdout(pathlib.Path(args.routerllm) / "router_runs" / "holdout14_doc_ids.json")
     out_root = ROOT / "benchmarks"
     out_root.mkdir(exist_ok=True)
     written = []
@@ -185,11 +221,20 @@ def main() -> int:
         mapping = NATIVE[name] if name in NATIVE else GRADERS.get(grader_kind, GRADERS["exact"])
         supported = mapping["check_type"] is not None
 
+        # Rows in routerllm's holdout allocation are ALWAYS kept and labeled as
+        # the test split — that is where the baselines were measured, and a test
+        # number computed on other examples would not be comparable to them.
+        held = [r for r in rows if in_holdout(holdout, name, r)]
+        pool = [r for r in rows if not in_holdout(holdout, name, r)]
+        n_holdout_allocated = sum(len(ids) for key, ids in holdout.items()
+                                  if key == name or key.startswith(name + "_"))
+
         # A benchmark we cannot grade is kept only as a sample, for reference —
         # humaneval's answers are whole test harnesses and run to megabytes.
         limit = args.limit if supported else min(args.limit or 20, 20)
-        if limit and total > limit:
-            rows = random.Random(args.seed).sample(rows, limit)
+        if limit and len(held) + len(pool) > limit:
+            pool = random.Random(args.seed).sample(pool, max(0, limit - len(held)))
+        rows = ([{**r, "split": "test"} for r in held] + pool) if held else pool
 
         target = out_root / name
         target.mkdir(exist_ok=True)
@@ -205,6 +250,7 @@ def main() -> int:
 
         (target / "data.jsonl").write_text("".join(
             json.dumps({"question": r["question"], "answer": r["answer"],
+                        **({"split": r["split"]} if "split" in r else {}),
                         **extra.get(r["question"], {})}) + "\n" for r in rows))
         if name in NEEDS_FIELDS and missing_fields:
             print(f"   warning: {name} — {missing_fields}/{len(rows)} examples have no "
@@ -213,7 +259,8 @@ def main() -> int:
         (target / "benchmark.yaml").write_text(_benchmark_yaml(
             name=name, meta=meta, kept=len(rows), total=total, seed=args.seed,
             grader_kind=grader_kind, mapping=mapping, supported=supported,
-            baseline=baselines.get(name)))
+            baseline=baselines.get(name),
+            holdout_kept=len(held), holdout_allocated=n_holdout_allocated))
 
         # Never overwrite a task config that already exists — several are tuned
         # by hand (ifeval carries a tighter per-query budget and its own answer
@@ -225,15 +272,17 @@ def main() -> int:
                 kept_existing = True
             else:
                 task_file.write_text(_task_yaml(name, mapping))
-        written.append((name, len(rows), total, grader_kind, supported, kept_existing))
+        written.append((name, len(rows), total, grader_kind, supported, kept_existing,
+                        len(held), n_holdout_allocated))
 
     print(f"{len(written)} benchmarks -> {out_root}")
-    for name, kept, total, grader_kind, supported, kept_existing in written:
+    for name, kept, total, grader_kind, supported, kept_existing, held_n, alloc_n in written:
         mark = " " if supported else "!"
         note = ("" if supported else "  (data only — grading unsupported)")
         if kept_existing:
             note = "  (kept the existing hand-written config/task/%s.yaml)" % name
-        print(f" {mark} {name:22s} {kept:>5}/{total:<5} {grader_kind}{note}")
+        hold = f"  holdout {held_n}/{alloc_n}" if alloc_n else ""
+        print(f" {mark} {name:22s} {kept:>5}/{total:<5} {grader_kind}{hold}{note}")
     return 0
 
 
@@ -257,7 +306,8 @@ def _read_yaml_ish(path: pathlib.Path) -> dict:
     return data
 
 
-def _benchmark_yaml(name, meta, kept, total, seed, grader_kind, mapping, supported, baseline) -> str:
+def _benchmark_yaml(name, meta, kept, total, seed, grader_kind, mapping, supported,
+                    baseline, holdout_kept=0, holdout_allocated=0) -> str:
     """Render one benchmark's metadata file. See `main` for the arguments."""
     lines = [
         f"# {name} — imported from routerllm by scripts/import_routerllm_benchmarks.py",
@@ -271,6 +321,15 @@ def _benchmark_yaml(name, meta, kept, total, seed, grader_kind, mapping, support
         f"routerllm_grader: {grader_kind}",
         f"grading_supported: {str(supported).lower()}",
     ]
+    if holdout_allocated:
+        lines += [
+            "# routerllm allocated a holdout for this task; the rows below labeled",
+            '# "split": "test" are the holdout examples present in the export, and the',
+            "# optimizer uses exactly those as its test split — the same examples the",
+            "# baselines were measured on. Partial coverage means the export was itself",
+            "# a sample; zero means the export's doc_ids could not be matched.",
+            f"holdout_in_data: {holdout_kept} of {holdout_allocated}",
+        ]
     if mapping.get("note"):
         lines.append(f"grading_note: {mapping['note']}")
     if mapping.get("check_type"):

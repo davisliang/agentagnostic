@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Score a candidate `solve(question, call_model)` program on the dev set.
+"""Score a candidate `solve(question, call_model)` program on the train set.
 
 Run from the agent's working directory, which holds `run_config.yaml`,
-`task_spec.json` and `dev_task.json`. This is a thin wrapper: the runtime,
+`task_spec.json` and `train_task.json` — the examples the design agent may
+see, disjoint from the dev split the search scores. This is a thin wrapper: the runtime,
 metering and grading are the SAME code the final search uses
 (`workflow_optimizer.runtime`), so a dev number here means what it means there.
 
@@ -37,7 +38,7 @@ def main() -> None:
 
 
 def evaluate(candidate_path: str) -> dict:
-    """Run one candidate against the staged dev examples.
+    """Run one candidate against the staged train examples.
 
     Args:
         candidate_path: Path to a `.py` defining `solve(question, call_model)`.
@@ -49,7 +50,7 @@ def evaluate(candidate_path: str) -> dict:
     """
     session = Session.from_config(load_resolved("run_config.yaml"))
     spec = json.load(open("task_spec.json"))
-    dev = json.load(open("dev_task.json"))
+    train = json.load(open("train_task.json"))
 
     check = spec["check"]
     grader = (Grader.from_grader(spec["grader"]) if check["type"] == "custom"
@@ -63,12 +64,12 @@ def evaluate(candidate_path: str) -> dict:
         "working_skills/helpers.py") else ""
     program = {"name": os.path.basename(candidate_path),
                "code": open(candidate_path).read(), "helpers": helpers}
-    score = session.evaluator(grader).run(program, dev)
+    score = session.evaluator(grader).run(program, train)
 
     if score.error:
         return {"ok": False, "error": score.error}
     return {"ok": True, "accuracy": score.accuracy, "cost_per_query": score.cost,
-            "n": len(dev), "cached_input_frac": score.cached_input_frac,
+            "n": len(train), "cached_input_frac": score.cached_input_frac,
             "errors": score.errors[:3]}
 
 

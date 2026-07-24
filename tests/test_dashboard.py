@@ -618,10 +618,12 @@ def test_the_estimate_sizes_itself_from_the_dataset_not_the_request():
     asked = costs.estimate(cfg, {})
     capped = costs.estimate(cfg, {}, available=40)
 
-    # the example-dependent work scales with the real count; the design agent,
-    # which is fixed per round, does not — so the total falls by less than 5x
+    # the example-dependent work scales with the real dev size (train is carved
+    # out first); the design agent, fixed per round, does not
+    n_train = int(cfg.data.n_train)
+    dev_of = lambda n: int((n - n_train) * float(cfg.data.dev_fraction))  # noqa: E731
     assert capped.breakdown["score on dev"] == pytest.approx(
-        asked.breakdown["score on dev"] / 5, rel=0.05)
+        asked.breakdown["score on dev"] * dev_of(40) / dev_of(200), rel=0.01)
     assert capped.breakdown["design agent"] == asked.breakdown["design agent"]
     assert capped.expected < asked.expected
     assert any("fewer than the 200 requested" in a for a in capped.assumptions)

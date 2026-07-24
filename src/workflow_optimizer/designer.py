@@ -278,8 +278,12 @@ def _stage_agent_dir(cfg, benchmark, agent_dir: pathlib.Path, run_skills_dir=Non
         # absolute: the agent reads this from its own scratch directory
         "grader": str(resolve(cfg.task.grader)) if cfg.task.grader else None,
     }))
-    (agent_dir / "dev_task.json").write_text(
-        json.dumps(benchmark.dev[:cfg.designer.dev_sample_size]))
+    # The agent self-tests against TRAIN — the one slice it may see — so dev
+    # stays unseen and its scores honest. A benchmark saved before the train
+    # split existed (an old run being continued) falls back to a dev sample,
+    # which is the old behavior, leak and all.
+    train = benchmark.train or benchmark.dev[:cfg.designer.dev_sample_size]
+    (agent_dir / "train_task.json").write_text(json.dumps(train))
 
     skills_dir = agent_dir / ".claude" / "skills"
     skills_dir.mkdir(parents=True)

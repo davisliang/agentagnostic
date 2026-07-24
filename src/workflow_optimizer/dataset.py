@@ -105,7 +105,7 @@ def take(data: list[dict], n_examples: int, log=print, seed: int = 0) -> list[di
     return random.Random(seed).sample(data, n_examples)
 
 
-def generate_examples(cfg, client, analysis, log=print) -> list[dict]:
+def generate_examples(cfg, client, analysis, log=print, n_examples=None) -> list[dict]:
     """Generate a diverse labeled dataset for a task that brought no data.
 
     Generates in SMALL BATCHES — one giant structured-output call runs past
@@ -118,11 +118,15 @@ def generate_examples(cfg, client, analysis, log=print) -> list[dict]:
         analysis: The task analysis — its description and check_type decide what
             the answers should look like.
         log: Where progress lines go.
+        n_examples: How many examples to target. None reads
+            `cfg.data.n_examples`; a caller sizing for explicit splits passes
+            the total it actually needs.
 
     Returns:
-        Up to `cfg.data.n_examples` deduplicated `{"question", "answer"}` dicts.
-        May be short of the target if generation stalls; the shortfall is logged.
+        Up to the target of deduplicated `{"question", "answer"}` dicts. May be
+        short of the target if generation stalls; the shortfall is logged.
     """
+    target = int(cfg.data.n_examples) if n_examples is None else int(n_examples)
     free_form = analysis.check_type == "llm_judge"
     answer_rule = (
         "Each 'answer' is an ideal reference output for that input — it may be "
@@ -133,11 +137,11 @@ def generate_examples(cfg, client, analysis, log=print) -> list[dict]:
     batch_size = cfg.data.free_form_batch_size if free_form else cfg.data.batch_size
 
     case_types = _plan_case_types(cfg, client, analysis)
-    log(f"generating ~{cfg.data.n_examples} examples across {len(case_types)} "
+    log(f"generating ~{target} examples across {len(case_types)} "
         f"case types (batches of {batch_size})...")
 
     data, seen, stalls, case_index = [], set(), 0, 0
-    while len(data) < cfg.data.n_examples and stalls < cfg.data.max_stalls:
+    while len(data) < target and stalls < cfg.data.max_stalls:
         chosen = ([case_types[(case_index + j) % len(case_types)] for j in range(3)]
                   if case_types else [])
         case_index += 3
@@ -145,7 +149,7 @@ def generate_examples(cfg, client, analysis, log=print) -> list[dict]:
 
         prompt = prompts.render(
             "generate_examples",
-            k=min(batch_size, cfg.data.n_examples - len(data)),
+            k=min(batch_size, target - len(data)),
             description=analysis.description,
             answer_rule=answer_rule,
             case_hint=(" Cover these kinds of case specifically: " + "; ".join(chosen) + "."
@@ -166,9 +170,9 @@ def generate_examples(cfg, client, analysis, log=print) -> list[dict]:
                 data.append({"question": item.question, "answer": item.answer})
         stalls = stalls + 1 if len(data) == before else 0
 
-    if len(data) < cfg.data.n_examples:
-        log(f"(note: generated {len(data)}/{cfg.data.n_examples} unique examples)")
-    return data[:cfg.data.n_examples]
+    if len(data) < target:
+        log(f"(note: generated {len(data)}/{target} unique examples)")
+    return data[:target]
 
 
 def _plan_case_types(cfg, client, analysis) -> list[str]:

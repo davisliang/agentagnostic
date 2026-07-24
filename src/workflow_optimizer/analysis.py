@@ -8,7 +8,8 @@ NOTE: a Pydantic docstring becomes the JSON Schema "description" and is sent to
 the model with the request. Those docstrings are prompt text as well as comments
 — keep developer asides in `#` comments, which are not transmitted.
 """
-from dataclasses import dataclass
+import random
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -46,8 +47,12 @@ class Benchmark:
     Attributes:
         analysis: The task description and inferred answer format.
         grader: Scores a returned answer against an example.
-        dev: Examples the design agent may tune against.
+        dev: Examples candidates are scored on during the search; their
+            failures are fed back to later design rounds.
         test: Held-out examples; only the final ranking touches them.
+        train: The only examples the design agent may SEE — its self-test set
+            and any few-shot material — disjoint from dev and test, so nothing
+            the agent tunes against is ever scored.
         judge_status: Human-readable note on how the judge was set up — whether
             the task-specific rubric passed calibration or a generic judge is in
             use. "" when nothing is judged by a model.
@@ -56,12 +61,78 @@ class Benchmark:
     grader: Grader
     dev: list[dict]
     test: list[dict]
+    train: list[dict] = field(default_factory=list)
     judge_status: str = ""
 
     @property
     def description(self) -> str:
         """The task description, as given to the design agent and the judge."""
         return self.analysis.description
+
+
+def split_examples(cfg, data: list[dict], log=print) -> tuple[list, list, list]:
+    """Split the pool into train / dev / test — allocated, sized, and random.
+
+    Train is carved out FIRST: it is the only slice the design agent may see
+    (self-tests, few-shot material), so nothing the agent tunes against is ever
+    scored. Dev guides the search; test is held out for the final ranking.
+
+    Examples carrying `"split": "test"` are an external allocation — routerllm's
+    holdout, where its baselines were measured — and become the test pool, so
+    our test numbers are computed on the same examples as the baselines they
+    are compared against. Without labels the split is random. Either way the
+    sampling is seeded, so two runs at the same sizes score the same examples.
+
+    Sizes come from `cfg.data`: `n_train` always; `n_dev`/`n_test` when both
+    are set, else `n_examples` capped and `dev_fraction` split.
+
+    Args:
+        cfg: The run config; reads `cfg.data`.
+        data: The loaded or generated examples.
+        log: Where the sampling decisions are noted.
+
+    Returns:
+        `(train, dev, test)` — disjoint; train may be empty, dev and test never.
+
+    Raises:
+        ValueError: Too few examples to give dev and test at least one each.
+    """
+    n_train = max(0, int(cfg.data.n_train))
+    n_dev, n_test = int(cfg.data.n_dev), int(cfg.data.n_test)
+    explicit = n_dev > 0 and n_test > 0
+    rng = random.Random(0)
+
+    allocated = [r for r in data if r.get("split") in ("test", "holdout")]
+    pool = [r for r in data if r.get("split") not in ("test", "holdout")]
+
+    if allocated:
+        test = (sorted(allocated, key=lambda r: r["question"]) if n_test <= 0
+                or n_test >= len(allocated)
+                else rng.sample(allocated, n_test))
+        log(f"test     = {len(test)} externally allocated holdout example(s)"
+            + (f" (of {len(allocated)})" if len(test) < len(allocated) else ""))
+        budget = (n_train + n_dev) if explicit else max(1, int(cfg.data.n_examples) - len(test))
+        pool = datasets.take(pool, budget, log=log)
+        rng.shuffle(pool)
+        n_train = min(n_train, max(0, len(pool) - 1))     # dev keeps at least one
+        train = pool[:n_train]
+        dev = pool[n_train:n_train + n_dev] if explicit else pool[n_train:]
+    else:
+        wanted = (n_train + n_dev + n_test) if explicit else int(cfg.data.n_examples)
+        pool = datasets.take(list(data), wanted, log=log)
+        rng.shuffle(pool)
+        n_train = min(n_train, max(0, len(pool) - 2))     # always leave dev + test
+        train, rest = pool[:n_train], pool[n_train:]
+        if explicit:
+            dev, test = rest[:n_dev], rest[n_dev:n_dev + n_test]
+        else:
+            cut = max(1, min(len(rest) - 1, int(len(rest) * cfg.data.dev_fraction)))
+            dev, test = rest[:cut], rest[cut:]
+
+    if not dev or not test:
+        raise ValueError(f"need at least 1 dev and 1 test example, got "
+                         f"{len(dev)} dev / {len(test)} test from {len(data)} examples")
+    return train, dev, test
 
 
 def build_benchmark(cfg, client, log=print) -> Benchmark:
@@ -73,12 +144,12 @@ def build_benchmark(cfg, client, log=print) -> Benchmark:
         log: Where progress lines go. Pass a no-op to silence them.
 
     Returns:
-        A Benchmark with dev and test splits, both non-empty.
+        A Benchmark with train, dev and test splits; dev and test non-empty.
 
     Raises:
-        ValueError: Fewer than 2 examples were available, so the data cannot be
-            split. Dev drives the search and test is the only honest number, so
-            an empty split would surface as a meaningless accuracy of 0.00.
+        ValueError: Too few examples to split. Dev drives the search and test
+            is the only honest number, so an empty split would surface as a
+            meaningless accuracy of 0.00.
     """
     data = datasets.load_examples(cfg.task.dataset)
     analysis = analysis_from_config(cfg) or analyze_task(cfg, client, cfg.task.seed_prompt, data)
@@ -93,22 +164,24 @@ def build_benchmark(cfg, client, log=print) -> Benchmark:
         grader, judge_status = Grader(kind=analysis.check_type), "n/a (not an LLM judge)"
 
     if data is None:
-        data = datasets.generate_examples(cfg, client, analysis, log=log)
-    else:
-        data = datasets.take(data, int(cfg.data.n_examples), log=log)
+        explicit = int(cfg.data.n_dev) > 0 and int(cfg.data.n_test) > 0
+        wanted = (int(cfg.data.n_train) + int(cfg.data.n_dev) + int(cfg.data.n_test)
+                  if explicit else int(cfg.data.n_examples))
+        data = datasets.generate_examples(cfg, client, analysis, log=log, n_examples=wanted)
     if len(data) < 2:
         raise ValueError(f"need at least 2 examples to split dev/test, got {len(data)}")
     check_grader(grader, data[0])
-    split = max(1, min(len(data) - 1, int(len(data) * cfg.data.dev_fraction)))
+    train, dev, test = split_examples(cfg, data, log=log)
     benchmark = Benchmark(analysis=analysis, grader=grader,
-                          dev=data[:split], test=data[split:], judge_status=judge_status)
+                          train=train, dev=dev, test=test, judge_status=judge_status)
 
     log(f"check    = {grader.kind}")
     if grader.kind == "llm_judge":
         log(f"judge    = {judge_status}")
     if analysis.answer_examples:
         log(f"answers  = {', '.join(repr(e) for e in analysis.answer_examples[:3])}")
-    log(f"{len(data)} examples  ->  {len(benchmark.dev)} dev / {len(benchmark.test)} test")
+    log(f"{len(train) + len(dev) + len(test)} examples  ->  {len(train)} train / "
+        f"{len(dev)} dev / {len(test)} test")
     return benchmark
 
 
@@ -127,7 +200,7 @@ def benchmark_to_dict(benchmark: Benchmark) -> dict:
         A JSON-serializable dict `benchmark_from_dict` can rebuild from.
     """
     return {"analysis": benchmark.analysis.model_dump(),
-            "dev": benchmark.dev, "test": benchmark.test,
+            "train": benchmark.train, "dev": benchmark.dev, "test": benchmark.test,
             "judge_status": benchmark.judge_status,
             "grader": {"kind": benchmark.grader.kind,
                        "task": benchmark.grader.task,
@@ -159,6 +232,7 @@ def benchmark_from_dict(cfg, client, saved: dict) -> Benchmark:
     else:
         grader = Grader(kind=grader_info.get("kind", analysis.check_type))
     return Benchmark(analysis=analysis, grader=grader,
+                     train=list(saved.get("train", [])),   # absent in pre-split saves
                      dev=list(saved["dev"]), test=list(saved["test"]),
                      judge_status=saved.get("judge_status", ""))
 

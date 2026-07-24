@@ -40,7 +40,9 @@ searches, watches them run, and compares what they found:
 - **New search** — either pick a **benchmark** (the 14 routerllm holdout tasks
   plus ARC-AGI-2, with their example counts, graders and recorded baselines), or
   **describe a task** in free text and optionally upload your own `.jsonl`.
-  Upload nothing and the examples are generated. **Tools workflows may use** —
+  Upload nothing and the examples are generated. **Train / dev / test counts** set
+  each split's size explicitly (seeded random sampling); blank splits the task's
+  pool by the configured fraction. **Tools workflows may use** —
   code_execution, web_search and web_fetch — are checkboxes; uncheck the web
   tools for a closed-book task so no candidate can look answers up, and its
   numbers stay comparable to a closed-book baseline. **Skills** show as
@@ -120,6 +122,14 @@ yaml records `sampled_from`, so the sampling is never silent. Baselines are
 **recomputed** from routerllm's `joined_14.jsonl` rather than copied, which is
 checkable: the import reproduces ifeval's known 0.848 / 0.891 / 0.848 / 0.957.
 
+Where routerllm allocated a **holdout** (the examples its baselines were measured
+on), the import labels those rows and the optimizer uses exactly them as its test
+split — so a test score and the recorded baselines are computed on the same
+examples. Coverage is stated per benchmark (`holdout_in_data`): full for
+gpqa_diamond_gen and the AIME sets, partial where the export was itself a sample,
+zero where its doc ids could not be matched (mmlu_pro, bbeh_gen, minerva_math —
+those fall back to a random split).
+
 Grading is mapped onto ours where it can be: `exact` → exact match, `contains` →
 `benchmarks/_graders/contains.py`, `grid` → `benchmarks/_graders/grid.py` (both
 ported from routerllm so a score means the same thing), `judge` → our LLM judge.
@@ -159,7 +169,7 @@ These words mean one thing each, everywhere — in the code, the config, and bel
 | **grader** | Scores one answer in [0, 1] — numeric, exact, LLM-judge, or a task's own metric. |
 | **split score** | One candidate's accuracy and cost on one split. |
 | **search** | One optimization: every candidate tried, and the finalists. |
-| **dev / test** | Dev guides the search; test is held out and only the final ranking touches it. |
+| **train / dev / test** | Train is the only slice the design agent may see (self-tests, few-shot material). Dev guides the search. Test is held out; only the final ranking touches it. |
 | **frontier** | The non-dominated candidates — nothing else is both cheaper and more accurate. |
 | **call meter** | The per-query object whose `call_model` a workflow calls. Measures and caps. |
 

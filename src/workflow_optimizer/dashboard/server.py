@@ -39,6 +39,9 @@ STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
 FORM_FIELDS = {
     "designer.rounds": int,
     "data.n_examples": int,
+    "data.n_train": int,
+    "data.n_dev": int,
+    "data.n_test": int,
     "runtime.concurrency": int,
     "runtime.max_model_calls": int,
     "report.max_cost_per_query": float,
@@ -541,6 +544,7 @@ def run_detail(run_id: str, log_lines: int = 400) -> dict:
                      "judge_status": analyzed.get("judge_status", ""),
                      "rubric": analyzed.get("rubric", ""),
                      "answer_examples": analyzed.get("answer_examples", []),
+                     "train_sample": analyzed.get("train_sample", []),
                      "dev_sample": analyzed.get("dev_sample", []),
                      "test_sample": analyzed.get("test_sample", [])},
         "candidates": list(candidates.values()),

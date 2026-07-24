@@ -92,12 +92,25 @@ class JudgeConfig:
 
 @dataclass
 class DataConfig:
-    """Settings for generating a dataset when the task supplies none.
+    """Settings for the dataset: how many examples, and how they split.
+
+    The split is three-way. TRAIN is the only slice the design agent may see —
+    its self-test examples and any few-shot material it bakes into prompts —
+    carved out first so nothing the agent tunes against is ever scored. DEV
+    guides the search (candidates are scored on it, and its failures are fed
+    back to later rounds). TEST is held out for the final ranking alone.
 
     Attributes:
-        n_examples: How many labeled examples to end up with.
-        dev_fraction: Share of them used as the dev split, which guides the
-            search. The rest is held-out test.
+        n_examples: Pool size — how many labeled examples to load or generate —
+            when `n_dev`/`n_test` are not set explicitly.
+        dev_fraction: Share of the pool (after train is carved out) used as the
+            dev split when `n_dev`/`n_test` are not set. The rest is test.
+        n_train: Examples the design agent may see and self-test against.
+            Disjoint from dev and test.
+        n_dev: Explicit dev size. Set BOTH `n_dev` and `n_test` to size the
+            splits directly — the pool becomes `n_train + n_dev + n_test` and
+            `n_examples`/`dev_fraction` are ignored. 0 uses the fraction.
+        n_test: Explicit test size, as above. 0 uses the remainder.
         n_case_types: How many kinds of case to plan up front, so batches can be
             pointed at different ones instead of all writing the typical example.
         batch_size: Examples requested per generation call.
@@ -107,6 +120,9 @@ class DataConfig:
     """
     n_examples: int = 100
     dev_fraction: float = 0.6
+    n_train: int = 5
+    n_dev: int = 0
+    n_test: int = 0
     n_case_types: int = 15
     batch_size: int = 20
     free_form_batch_size: int = 5
@@ -126,8 +142,10 @@ class DesignerConfig:
             which is then handed to every design round. Set false to skip it (an
             extra agent session; on by default so designs build on prior art, not
             only what the model already carries in its weights).
-        dev_sample_size: How many dev examples the agent may self-test against
-            while iterating.
+        dev_sample_size: Legacy — the train split now serves this purpose (see
+            `DataConfig.n_train`). Kept so run configs saved before the split
+            existed still load; used only as the fallback sample size when a
+            continued run's saved benchmark predates the train split.
         working_skills: Whether the design agent gets a `working_skills/` directory
             it can read and write across the rounds of a single run. A skill
             (a short SKILL.md note on a technique or task gotcha) it writes in one
