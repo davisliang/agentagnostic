@@ -584,6 +584,7 @@ def list_benchmarks() -> list[dict]:
             continue
         meta = OmegaConf.to_container(OmegaConf.load(meta_file), resolve=True)
         found.append({
+            "splits": _split_counts(folder / "data.jsonl"),
             "name": meta.get("name", folder.name),
             "description": meta.get("description", ""),
             "examples": meta.get("examples"),
@@ -595,6 +596,32 @@ def list_benchmarks() -> list[dict]:
             "tools": _task_tools(meta.get("name", folder.name)),
         })
     return found
+
+
+def _split_counts(path: Path) -> dict:
+    """Count a benchmark's rows and routerllm partition labels, for the picker.
+
+    Args:
+        path: The benchmark's `data.jsonl`.
+
+    Returns:
+        `{"rows", "train", "val", "test"}` — the label counts are zero when the
+        benchmark carries no allocation (news, ml_papers, generated tasks).
+    """
+    counts = {"rows": 0, "train": 0, "val": 0, "test": 0}
+    try:
+        with open(path) as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                counts["rows"] += 1
+                part = json.loads(line).get("split")
+                part = "test" if part == "holdout" else part
+                if part in ("train", "val", "test"):
+                    counts[part] += 1
+    except (OSError, ValueError):
+        pass
+    return counts
 
 
 def _task_tools(task: str) -> Optional[list]:

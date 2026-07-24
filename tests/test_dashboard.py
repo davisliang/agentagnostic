@@ -353,6 +353,10 @@ def test_benchmarks_are_listed_with_their_metadata():
         pytest.skip("benchmarks/ not imported in this checkout")
     assert "ifeval" in found and "arc_agi_2" in found
     assert found["ifeval"]["baselines"]["haiku"] == pytest.approx(0.8478, abs=1e-4)
+    # partition counts surface for the picker; unallocated benchmarks read zero
+    assert found["gpqa_diamond_gen"]["splits"]["test"] == 25
+    assert found["gpqa_diamond_gen"]["splits"]["train"] > 0
+    assert found["arc_agi_2"]["splits"]["test"] == 0
     # the code tasks cannot be graded here, and say so rather than scoring wrongly
     for name in ("humaneval_plus_gen", "mbpp_plus"):
         if name in found:
@@ -627,6 +631,15 @@ def test_the_estimate_sizes_itself_from_the_dataset_not_the_request():
     assert capped.breakdown["design agent"] == asked.breakdown["design agent"]
     assert capped.expected < asked.expected
     assert any("fewer than the 200 requested" in a for a in capped.assumptions)
+
+
+def test_the_estimate_knows_blank_sizes_take_a_partition_whole(runs_dir):
+    """bbeh's 417-example holdout would cost ~5x an estimate that assumed the
+    fraction split — blank dev/test on an allocated benchmark run the whole
+    partition, and the estimate must say so."""
+    result = server.estimate_cost("bbeh_gen", {})
+    assert any("allocation" in a and "417 test" in a for a in result["assumptions"]), \
+        result["assumptions"]
 
 
 # ---- comparing answers across workflows, example by example -----------------

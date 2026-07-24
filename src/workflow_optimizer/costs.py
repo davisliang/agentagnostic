@@ -128,7 +128,7 @@ def observed(runs: list) -> dict:
 
 def estimate(cfg, history: dict = None, generates_data: bool = None,
              judged: bool = None, probe: "Probe" = None,
-             available: int = None) -> Estimate:
+             available: int = None, allocated: dict = None) -> Estimate:
     """Estimate the cost of running a search with this config.
 
     Args:
@@ -188,11 +188,26 @@ def estimate(cfg, history: dict = None, generates_data: bool = None,
 
     rounds = int(cfg.designer.rounds)
     n_train = max(0, int(cfg.data.n_train))
+    alloc_val = int((allocated or {}).get("val") or 0)
+    alloc_test = int((allocated or {}).get("test") or 0)
     explicit = int(cfg.data.n_dev) > 0 and int(cfg.data.n_test) > 0
     if explicit:
         dev, test = int(cfg.data.n_dev), int(cfg.data.n_test)
+        if alloc_val:
+            dev = min(dev, alloc_val)      # a partition can't give more than it has
+        if alloc_test:
+            test = min(test, alloc_test)
         n_examples = n_train + dev + test
         notes.append(f"explicit split sizes: {n_train} train / {dev} dev / {test} test")
+    elif alloc_val and alloc_test:
+        # The run will draw dev/test from routerllm's allocated partitions, and
+        # blank inputs take a partition WHOLE — bbeh's 417-example holdout would
+        # otherwise cost ~5x an estimate that assumed the fraction split.
+        dev = min(int(cfg.data.n_dev), alloc_val) if int(cfg.data.n_dev) > 0 else alloc_val
+        test = min(int(cfg.data.n_test), alloc_test) if int(cfg.data.n_test) > 0 else alloc_test
+        n_examples = n_train + dev + test
+        notes.append(f"sizes from routerllm's allocation: {dev} dev (its val partition), "
+                     f"{test} test (its holdout) — blank inputs take each partition whole")
     else:
         # What will actually be scored, which is not always what was asked for:
         # a supplied dataset may hold fewer examples than the setting requests.

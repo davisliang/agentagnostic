@@ -380,9 +380,10 @@ def estimate_cost(task: str, overrides: dict, freetext: bool = False,
     history = costs.observed([(s.task, runstore.read_events(s.run_id))
                               for s in runstore.list_runs()])
     generates = not (has_dataset or (not freetext and bool(cfg.task.dataset)))
+    shape = _dataset_shape(cfg)
     guess = costs.estimate(cfg, history, generates_data=generates,
                            judged=None if not freetext else False,
-                           available=_dataset_size(cfg))
+                           available=shape["rows"] if shape else None, allocated=shape)
     return _estimate_dict(guess)
 
 
@@ -426,8 +427,9 @@ def probe_and_estimate(task: str, overrides: dict) -> dict:
 
     history = costs.observed([(s.task, runstore.read_events(s.run_id))
                               for s in runstore.list_runs()])
+    shape = _dataset_shape(cfg)
     guess = costs.estimate(cfg, history, generates_data=False, probe=measured,
-                           available=_dataset_size(cfg))
+                           available=shape["rows"] if shape else None, allocated=shape)
     return _estimate_dict(guess, probe={
         "n": measured.n, "model": measured.model,
         "input_tokens": measured.input_tokens,
@@ -556,28 +558,38 @@ def run_detail(run_id: str, log_lines: int = 400) -> dict:
     }
 
 
-def _dataset_size(cfg) -> Optional[int]:
-    """Count the examples a task's dataset actually holds.
+def _dataset_shape(cfg) -> Optional[dict]:
+    """Count a task's dataset rows and any routerllm partition labels.
 
-    The run scores `min(n_examples, this)`, so an estimate that assumes
-    `n_examples` can be out by the ratio — a request for 40 against a
-    200-example benchmark understated a run fivefold before `n_examples` was
-    applied to loaded data.
+    The run scores what the data allows, not what was asked: `n_examples` caps
+    a loaded pool, and an allocated benchmark's blank dev/test take a labeled
+    partition WHOLE. An estimate that ignores either can be out by the ratio —
+    a request for 40 against 200 rows understated fivefold, and bbeh's
+    417-example holdout would cost ~5x an estimate assuming the fraction split.
 
     Args:
         cfg: The run config.
 
     Returns:
-        The row count, or None if the task generates its own examples or the file
-        cannot be read.
+        `{"rows", "train", "val", "test"}` counts, or None if the task
+        generates its own examples or the file cannot be read.
     """
     if not cfg.task.dataset:
         return None
+    shape = {"rows": 0, "train": 0, "val": 0, "test": 0}
     try:
         with open(paths.resolve(cfg.task.dataset)) as f:
-            return sum(1 for line in f if line.strip())
-    except OSError:
+            for line in f:
+                if not line.strip():
+                    continue
+                shape["rows"] += 1
+                part = json.loads(line).get("split")
+                part = "test" if part == "holdout" else part
+                if part in ("train", "val", "test"):
+                    shape[part] += 1
+    except (OSError, ValueError):
         return None
+    return shape
 
 
 def _estimate_dict(guess: costs.Estimate, **extra) -> dict:

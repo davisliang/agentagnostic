@@ -394,7 +394,11 @@ function benchmarkPicker() {
   const known = new Set(benchmarks.map(b => b.name));
   const options = (window._tasks || []).map(name => {
     const b = benchmarks.find(x => x.name === name);
-    const label = b ? `${name} — ${b.examples} ex, ${b.grader}` : name;
+    const s = b && b.splits;
+    const label = !b ? name
+      : s && (s.train || s.val || s.test)
+        ? `${name} — ${s.train} train / ${s.val} val / ${s.test} test, ${b.grader}`
+        : `${name} — ${b.examples} ex, ${b.grader}`;
     return `<option value="${esc(name)}">${esc(label)}</option>`;
   }).join("");
   const unsupported = benchmarks.filter(b => !b.supported);
@@ -414,10 +418,18 @@ function describeTask() {
   const refs = base.haiku != null
     ? ` · routerllm: haiku ${acc(base.haiku)} · opus ${acc(base.opus)} · router ${acc(base.router)} · oracle ${acc(base.oracle)}`
     : "";
+  const s = b.splits || {};
+  const splitLine = (s.train || s.val || s.test)
+    ? `<div style="margin-top:3px;color:#7c8699">routerllm split in the data:
+        <b style="color:#bdc4d3">${s.train} train / ${s.val} val / ${s.test} test</b>
+        — our splits draw only from their partition; blank dev/test run the whole
+        val / test partition</div>`
+    : `<div style="margin-top:3px;color:#7c8699">no external allocation — random
+        seeded train/dev/test split</div>`;
   out.innerHTML = esc(b.description) +
     `<div style="margin-top:4px;color:#7c8699">${b.examples} examples` +
     (b.sampled_from && b.sampled_from !== b.examples ? ` (sampled from ${b.sampled_from})` : "") +
-    esc(refs) + `</div>`;
+    esc(refs) + `</div>` + splitLine;
 }
 
 function promptFields() {
